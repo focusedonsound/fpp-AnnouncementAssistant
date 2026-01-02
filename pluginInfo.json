@@ -11,5 +11,5 @@
   "menuName": "Announcement Assistant",
   "menuIcon": "fa-bullhorn",
   "menuLocation": "status",
-  "entryPoint": "plugin.php?plugin=fpp-AnnouncementAssistant&page=index.php"
+  "entryPoint": "plugin.php?plugin=fpp-AnnouncementAssistant&page=www/index.php"
 }
