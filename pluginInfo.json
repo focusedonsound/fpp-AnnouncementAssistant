@@ -1,0 +1,9 @@
+{
+  "id": "AnnouncementAssistant",
+  "name": "AA - Announcement Assistant (Audio Ducking)",
+  "author": "focusedonsound",
+  "description": "Play pre-canned announcements over the currently playing show audio using PulseAudio mixing + automatic ducking. MVP includes 6 configurable buttons and ignores triggers while busy.",
+  "version": "0.1.0",
+  "license": "GPL-3.0",
+  "homepage": "https://github.com/focusedonsound/fpp-AnnouncementAssistant"
+}
