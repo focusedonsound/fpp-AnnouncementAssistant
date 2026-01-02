@@ -92,17 +92,34 @@ $audioFiles = listAudio("/home/fpp/media/music");
 </div>
 
 <script>
+const AA_BASE = 'plugin.php?plugin=fpp-AnnouncementAssistant&nopage=1&page=';
+
 async function aaSave() {
   const form = document.getElementById('aaForm');
   const fd = new FormData(form);
-  const res = await fetch('plugin.php?plugin=fpp-AnnouncementAssistant&page=save.php', { method:'POST', body: fd });
-  const j = await res.json().catch(()=>({status:'ERROR', message:'Invalid JSON'}));
+
+  const res = await fetch(AA_BASE + 'save.php', {
+    method: 'POST',
+    body: fd,
+    cache: 'no-store'
+  });
+
+  const text = await res.text();
+  let j;
+  try { j = JSON.parse(text); }
+  catch (e) { j = { status: 'ERROR', message: 'Invalid JSON: ' + text.slice(0, 120) }; }
+
   document.getElementById('aaStatus').textContent = j.message || j.status;
 }
 
 async function aaTrigger(i) {
-  const res = await fetch('plugin.php?plugin=fpp-AnnouncementAssistant&page=trigger.php&slot='+i);
-  const j = await res.json().catch(()=>({status:'ERROR', message:'Invalid JSON'}));
+  const res = await fetch(AA_BASE + 'trigger.php&slot=' + encodeURIComponent(i), { cache: 'no-store' });
+
+  const text = await res.text();
+  let j;
+  try { j = JSON.parse(text); }
+  catch (e) { j = { status: 'ERROR', message: 'Invalid JSON: ' + text.slice(0, 120) }; }
+
   document.getElementById('aaStatus').textContent = j.message || j.status;
 }
 </script>
