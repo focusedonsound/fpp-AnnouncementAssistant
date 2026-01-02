@@ -1,47 +1,73 @@
-#!/bin/bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 ANN_FILE="${1:-}"
-DUCK="${2:-25%}"   # target volume for fppd during announcement (ex: 25%)
+DUCK="${2:-25%}"     # duck target for the SHOW stream(s) while announcement plays
 
-if [[ -z "$ANN_FILE" || ! -f "$ANN_FILE" ]]; then
-  echo "Usage: $0 /path/to/announcement.(wav|mp3) [duck_percent]"
-  exit 1
-fi
-
-# MVP: ignore if already busy playing an announcement
-exec 9>/tmp/aa_announcement.lock
-flock -n 9 || exit 0
-
-export PULSE_SERVER="${PULSE_SERVER:-unix:/run/pulse/native}"
-
-have_pactl=0
-have_paplay=0
-command -v pactl >/dev/null 2>&1 && have_pactl=1
-command -v paplay >/dev/null 2>&1 && have_paplay=1
-
-# If Pulse tools aren't present, last-ditch fallback:
-# - This may fail while show audio is playing (device busy), but will work when idle.
-fallback_play() {
-  if command -v aplay >/dev/null 2>&1; then
-    aplay "$ANN_FILE" >/dev/null 2>&1 || aplay -D default "$ANN_FILE" || true
-  else
-    echo "ERROR: Neither paplay nor aplay is available to play: $ANN_FILE"
-    return 1
-  fi
+usage() {
+  echo "Usage: $0 /path/to/announcement.(wav|mp3|ogg|flac|m4a) [duck_percent]" >&2
+  exit 2
 }
 
-# If pactl can't talk to Pulse, we can't duck — just try to play.
-if [[ "$have_pactl" -eq 0 ]]; then
-  [[ "$have_paplay" -eq 1 ]] && paplay "$ANN_FILE" || fallback_play
-  exit 0
-fi
-if ! pactl info >/dev/null 2>&1; then
-  [[ "$have_paplay" -eq 1 ]] && paplay "$ANN_FILE" || fallback_play
+[[ -n "$ANN_FILE" && -f "$ANN_FILE" ]] || usage
+
+need() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "ERROR: '$1' not found" >&2
+    exit 3
+  }
+}
+
+# Best practice: we want Pulse tools. We'll try to recover if Pulse isn't running.
+need pactl
+
+# MVP behavior: ignore trigger if already busy
+acquire_lock() {
+  if command -v flock >/dev/null 2>&1; then
+    exec 9>/tmp/aa_announcementassistant.lock
+    flock -n 9 || exit 0
+  else
+    local d="/tmp/aa_announcementassistant.lockdir"
+    mkdir "$d" 2>/dev/null || exit 0
+    trap 'rmdir "$d" 2>/dev/null || true' EXIT
+  fi
+}
+acquire_lock
+
+# Allow docker/Pi to override Pulse socket; otherwise use default Pulse discovery.
+export PULSE_SERVER="${PULSE_SERVER:-}"
+
+ensure_pulse() {
+  pactl info >/dev/null 2>&1 && return 0
+
+  # Try starting user-mode pulseaudio (more Pi/FPP friendly than system mode)
+  if command -v pulseaudio >/dev/null 2>&1; then
+    pulseaudio --daemonize=yes --exit-idle-time=-1 >/dev/null 2>&1 || true
+    for _ in $(seq 1 50); do
+      pactl info >/dev/null 2>&1 && return 0
+      sleep 0.1
+    done
+  fi
+
+  return 1
+}
+
+# Fallback: ALSA-only attempt (may fail if device is busy, but better than nothing)
+alsa_fallback_play() {
+  if command -v aplay >/dev/null 2>&1; then
+    aplay "$ANN_FILE" >/dev/null 2>&1 || aplay -D default "$ANN_FILE" >/dev/null 2>&1 || true
+    return 0
+  fi
+  echo "ERROR: Pulse not reachable and no 'aplay' fallback available." >&2
+  return 1
+}
+
+if ! ensure_pulse; then
+  alsa_fallback_play
   exit 0
 fi
 
-# Find sink-input id(s) for fppd (more than one is possible)
+# Find fppd sink-input ids (strip any '#' that sneaks in)
 mapfile -t FPP_IDS < <(
   pactl list sink-inputs | awk '
     /^Sink Input #/ {id=$3; gsub("#","",id)}
@@ -51,6 +77,7 @@ mapfile -t FPP_IDS < <(
 )
 
 declare -A ORIG_VOL
+
 restore_volumes() {
   # Best-effort restore
   if [[ ${#ORIG_VOL[@]} -gt 0 ]]; then
@@ -61,27 +88,36 @@ restore_volumes() {
 }
 trap restore_volumes EXIT INT TERM
 
-# If no fppd sink inputs, show audio isn't currently playing.
-# Fallback behavior: just play announcement at normal volume.
+# If show audio isn't currently playing, just play announcement (no duck needed).
+duck_show=1
 if [[ ${#FPP_IDS[@]} -eq 0 ]]; then
-  if [[ "$have_paplay" -eq 1 ]]; then
-    paplay "$ANN_FILE"
-  else
-    fallback_play
-  fi
-  exit 0
+  duck_show=0
 fi
 
-# Duck show audio
-for id in "${FPP_IDS[@]}"; do
-  ORIG_VOL["$id"]="$(pactl get-sink-input-volume "$id" | awk 'match($0,/[0-9]+%/){print substr($0,RSTART,RLENGTH); exit}')"
-  [[ -n "${ORIG_VOL[$id]}" ]] || ORIG_VOL["$id"]="100%"
-  pactl set-sink-input-volume "$id" "$DUCK" >/dev/null
-done
+# Capture + duck show audio
+if [[ "$duck_show" -eq 1 ]]; then
+  for id in "${FPP_IDS[@]}"; do
+    v="$(pactl get-sink-input-volume "$id" \
+        | awk 'match($0,/[0-9]+%/){print substr($0,RSTART,RLENGTH); exit}')"
+    ORIG_VOL["$id"]="${v:-100%}"
+  done
 
-# Play announcement over the top
-if [[ "$have_paplay" -eq 1 ]]; then
-  paplay "$ANN_FILE"
+  for id in "${FPP_IDS[@]}"; do
+    pactl set-sink-input-volume "$id" "$DUCK" >/dev/null 2>&1 || true
+  done
+fi
+
+# Play announcement as its own Pulse stream so it MIXES over fppd
+# Prefer ffmpeg->pacat for “anything goes” formats; fallback to paplay.
+if command -v ffmpeg >/dev/null 2>&1 && command -v pacat >/dev/null 2>&1; then
+  ffmpeg -hide_banner -loglevel error -i "$ANN_FILE" -f s16le -ac 2 -ar 44100 - \
+    | pacat --raw --channels=2 --rate=44100 --format=s16le \
+            --client-name="AnnouncementAssistant" >/dev/null 2>&1 || true
+elif command -v paplay >/dev/null 2>&1; then
+  paplay "$ANN_FILE" >/dev/null 2>&1 || true
 else
-  fallback_play
+  # Last-ditch
+  alsa_fallback_play || true
 fi
+
+exit 0

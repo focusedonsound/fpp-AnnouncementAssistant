@@ -1,76 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ANN_FILE="${1:-}"
-DUCK="${2:-25%}"
+CONFIG_FILE="/home/fpp/media/config/announcementassistant.json"
+PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+DUCKER="${PLUGIN_DIR}/scripts/aa_duck_overlay_pulse.sh"
 
-if [[ -z "$ANN_FILE" || ! -f "$ANN_FILE" ]]; then
-  echo "ERROR: Missing/invalid announcement file: $ANN_FILE" >&2
+arg1="${1:-}"
+
+usage() {
+  echo "Usage:" >&2
+  echo "  $0 <slot 0-5>                # play configured slot" >&2
+  echo "  $0 </path/to/audio> [duck%]  # direct play (testing)" >&2
   exit 2
-fi
-
-need() { command -v "$1" >/dev/null 2>&1 || { echo "ERROR: '$1' not found" >&2; exit 3; }; }
-need pactl
-need pacat
-need ffmpeg
-
-# MVP behavior: ignore trigger if already busy
-if command -v flock >/dev/null 2>&1; then
-  exec 9>/tmp/aa_announcementassistant.lock
-  flock -n 9 || exit 0
-else
-  LOCKDIR="/tmp/aa_announcementassistant.lockdir"
-  mkdir "$LOCKDIR" 2>/dev/null || exit 0
-  trap 'rmdir "$LOCKDIR" 2>/dev/null || true' EXIT
-fi
-
-ensure_pulse() {
-  if pactl info >/dev/null 2>&1; then return 0; fi
-  # Try to start user-mode pulseaudio (Pi/FPP friendly)
-  pulseaudio --daemonize=yes --exit-idle-time=-1 >/dev/null 2>&1 || true
-  for _ in $(seq 1 50); do
-    pactl info >/dev/null 2>&1 && return 0
-    sleep 0.1
-  done
-  echo "ERROR: PulseAudio not running / not reachable" >&2
-  return 1
 }
 
-ensure_pulse
+[[ -n "$arg1" ]] || usage
+[[ -x "$DUCKER" ]] || { echo "ERROR: Missing/invalid ducker script: $DUCKER" >&2; exit 3; }
 
-# Find fppd sink-input(s)
-FPP_IDS="$(pactl list sink-inputs | awk '
-  /^Sink Input #/ {id=$3; sub(/^#/, "", id)}
-  /application\.process\.binary = "fppd"/ {print id}
-  /application\.name = "fppd"/ {print id}
-' | sort -u)"
+# If first arg looks like a number, treat as slot.
+if [[ "$arg1" =~ ^[0-9]+$ ]]; then
+  slot="$arg1"
+  [[ "$slot" -ge 0 && "$slot" -le 5 ]] || { echo "ERROR: slot must be 0-5" >&2; exit 2; }
 
-if [[ -z "$FPP_IDS" ]]; then
-  echo "ERROR: fppd is not showing up as a Pulse sink-input."
-  echo "Set FPP Audio Output Device to 'pulse' and restart fppd."
-  exit 4
+  if [[ ! -f "$CONFIG_FILE" ]]; then
+    echo "ERROR: Config not found: $CONFIG_FILE" >&2
+    exit 4
+  fi
+
+  # Extract duck + file for slot (config stores absolute paths from /home/fpp/media/music)
+  duck="$(python3 - <<PY
+import json
+p="${CONFIG_FILE}"
+cfg=json.load(open(p))
+print(cfg.get("duck","25%"))
+PY
+)"
+
+  ann_file="$(python3 - <<PY
+import json
+p="${CONFIG_FILE}"
+slot=${slot}
+cfg=json.load(open(p))
+buttons=cfg.get("buttons",[])
+if slot < 0 or slot >= len(buttons):
+    print("")
+else:
+    print((buttons[slot] or {}).get("file","") or "")
+PY
+)"
+
+  if [[ -z "$ann_file" ]]; then
+    echo "ERROR: No announcement file configured for slot $slot" >&2
+    exit 5
+  fi
+
+  # Normalize common “music/…” paths into absolute
+  if [[ "$ann_file" == music/* ]]; then
+    ann_file="/home/fpp/media/${ann_file}"
+  fi
+
+  [[ -f "$ann_file" ]] || { echo "ERROR: File not found: $ann_file" >&2; exit 6; }
+
+  exec "$DUCKER" "$ann_file" "$duck"
 fi
 
-# Capture current volumes
-declare -A ORIG_VOL
-for id in $FPP_IDS; do
-  v="$(pactl get-sink-input-volume "$id" | awk 'match($0,/[0-9]+%/){print substr($0,RSTART,RLENGTH); exit}')"
-  ORIG_VOL["$id"]="${v:-100%}"
-done
-
-# Duck show audio
-for id in $FPP_IDS; do
-  pactl set-sink-input-volume "$id" "$DUCK" >/dev/null 2>&1 || true
-done
-
-# Play announcement as a separate Pulse stream (mixes over show audio)
-# Decode anything ffmpeg supports into raw PCM for pacat
-ffmpeg -hide_banner -loglevel error -i "$ANN_FILE" -f s16le -ac 2 -ar 44100 - \
-  | pacat --raw --channels=2 --rate=44100 --format=s16le --client-name="AnnouncementAssistant" >/dev/null 2>&1 || true
-
-# Restore show audio
-for id in $FPP_IDS; do
-  pactl set-sink-input-volume "$id" "${ORIG_VOL[$id]}" >/dev/null 2>&1 || true
-done
-
-exit 0
+# Otherwise treat as: direct file path
+ann_file="$arg1"
+duck="${2:-25%}"
+exec "$DUCKER" "$ann_file" "$duck"
