@@ -1,119 +1,125 @@
 #!/bin/bash
 set -euo pipefail
 
-PLUGIN_NAME="AnnouncementAssistant"
-PLUGIN_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_NAME="Announcement Assistant (Audio Ducking)"
+PLUGIN_ID="AnnouncementAssistant"
 
+# Where FPP stores persistent config on real installs
 CFG_DIR="/home/fpp/media/config"
 CFG_FILE="${CFG_DIR}/announcementassistant.json"
 
-PULSE_SYSTEM_PA="/etc/pulse/system.pa"
-PULSE_CLIENT_CONF="/etc/pulse/client.conf"
-PULSE_RUN_DIR="/run/pulse"
-PULSE_SOCKET="${PULSE_RUN_DIR}/native"
+log() { echo "[$PLUGIN_ID] $*"; }
 
-SERVICE_NAME="aa-pulseaudio"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+need_root() {
+  if [[ "${EUID}" -ne 0 ]]; then
+    log "ERROR: fpp_install.sh must be run as root."
+    log "Tip: sudo ./fpp_install.sh"
+    exit 1
+  fi
+}
 
-log() { echo "[$PLUGIN_NAME] $*"; }
+ensure_dir() {
+  local d="$1"
+  [[ -d "$d" ]] || mkdir -p "$d"
+}
 
-SUDO=""
-if [[ "${EUID}" -ne 0 ]]; then
-  if command -v sudo >/dev/null 2>&1; then
-    SUDO="sudo"
+install_pkgs_if_missing() {
+  local missing=0
+  local pkgs=(
+    pulseaudio
+    pulseaudio-utils
+    libasound2-plugins
+    alsa-utils
+  )
+
+  for p in "${pkgs[@]}"; do
+    if ! dpkg -s "$p" >/dev/null 2>&1; then
+      missing=1
+      break
+    fi
+  done
+
+  if [[ "$missing" -eq 1 ]]; then
+    log "Installing required packages (PulseAudio + ALSA pulse plugin)…"
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get update -y
+    apt-get install -y --no-install-recommends "${pkgs[@]}"
   else
-    echo "[$PLUGIN_NAME] ERROR: Need root (or sudo) to install dependencies/services."
-    exit 1
-  fi
-fi
-
-have_cmd() { command -v "$1" >/dev/null 2>&1; }
-
-backup_if_exists() {
-  local f="$1"
-  if [[ -f "$f" ]]; then
-    local ts
-    ts="$(date +%Y%m%d-%H%M%S)"
-    $SUDO cp -a "$f" "${f}.aa.bak.${ts}"
-    log "Backed up $f -> ${f}.aa.bak.${ts}"
+    log "Required packages already installed."
   fi
 }
 
-install_deps() {
-  if ! have_cmd apt-get; then
-    log "ERROR: apt-get not found. Cannot install PulseAudio packages automatically."
-    log "On FPP this should exist; if not, install pulseaudio/pulseaudio-utils manually."
-    exit 1
+ensure_users_in_audio_group() {
+  # On Debian, pulseaudio package usually creates user "pulse"
+  if id -u pulse >/dev/null 2>&1; then
+    usermod -aG audio pulse || true
   fi
 
-  log "Installing dependencies (pulseaudio, pulseaudio-utils, libasound2-plugins)..."
-  $SUDO apt-get update -y
-  $SUDO apt-get install -y pulseaudio pulseaudio-utils libasound2-plugins
+  # FPP user on real installs
+  if id -u fpp >/dev/null 2>&1; then
+    usermod -aG audio fpp || true
+  fi
 }
 
-write_pulse_configs() {
-  log "Configuring PulseAudio system instance..."
+install_pulse_system_pa() {
+  # We run a system-wide Pulse server so FPP can always connect without a desktop session.
+  # Socket is local-only and open (0666) since this is a show appliance.
+  local pulse_dir="/etc/pulse"
+  local system_pa="${pulse_dir}/system.pa"
 
-  # system.pa: minimal + predictable; no dbus modules; explicit native socket
-  backup_if_exists "$PULSE_SYSTEM_PA"
-  $SUDO mkdir -p /etc/pulse
+  ensure_dir "$pulse_dir"
 
-  $SUDO tee "$PULSE_SYSTEM_PA" >/dev/null <<'EOF'
-#!/usr/bin/pulseaudio -nF
-# AA - Announcement Assistant (Audio Ducking)
-# Minimal system-wide PulseAudio config for FPP mixing/ducking.
-# Creates a native socket at /run/pulse/native and uses ALSA default device.
+  # Backup existing once
+  if [[ -f "$system_pa" && ! -f "${system_pa}.aa.bak" ]]; then
+    cp -a "$system_pa" "${system_pa}.aa.bak"
+    log "Backed up existing system.pa to system.pa.aa.bak"
+  fi
+
+  cat > "$system_pa" <<'EOF'
+### Announcement Assistant system PulseAudio config
+### Creates a local unix socket at /run/pulse/native for mixing/ducking use.
 
 .nofail
-.fail
 
-# Native UNIX socket for local clients (FPP + plugin scripts)
-load-module module-native-protocol-unix auth-anonymous=1 socket=/run/pulse/native
+# Local unix socket all local processes can connect to
+load-module module-native-protocol-unix auth-anonymous=1 socket=/run/pulse/native socket_mode=0666
 
-# Create an ALSA sink using the system default device
-# Users who want to steer "default" can do so via ALSA (asound.conf) / FPP audio settings.
-load-module module-alsa-sink device=default tsched=0
+# Detect ALSA devices
+load-module module-udev-detect
 
-# Ensure there's always a sink
+# Always have a sink (prevents “no sink” edge cases)
 load-module module-always-sink
 
-# Nice, predictable defaults
-set-default-sink alsa_output
+# Nice defaults (safe if missing)
+load-module module-stream-restore
+load-module module-device-restore
+load-module module-default-device-restore
+
 EOF
 
-  # client.conf: force clients (fppd/paplay/pactl) to use the system socket
-  backup_if_exists "$PULSE_CLIENT_CONF"
-  $SUDO tee "$PULSE_CLIENT_CONF" >/dev/null <<EOF
-# AA - Announcement Assistant (Audio Ducking)
-default-server = unix:${PULSE_SOCKET}
-autospawn = no
-EOF
+  chmod 644 "$system_pa"
+  log "Installed /etc/pulse/system.pa"
 }
 
-install_service() {
-  if ! have_cmd systemctl; then
-    log "WARNING: systemctl not found. Skipping service install."
-    log "You will need to start pulseaudio manually on boot."
+install_systemd_service_if_available() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log "systemctl not found; skipping systemd service install."
+    log "You can still start PulseAudio manually if needed."
     return 0
   fi
 
-  log "Installing systemd service: ${SERVICE_NAME}.service"
-  $SUDO tee "$SERVICE_FILE" >/dev/null <<EOF
+  local svc="/etc/systemd/system/announcementassistant-pulse.service"
+
+  cat > "$svc" <<'EOF'
 [Unit]
-Description=AA - PulseAudio system server for FPP (Announcement Assistant)
+Description=Announcement Assistant - PulseAudio (system) for audio mixing/ducking
 After=sound.target
-Wants=sound.target
 
 [Service]
-Type=forking
-# Make sure runtime dir exists + is permissive for local clients
-ExecStartPre=/bin/mkdir -p ${PULSE_RUN_DIR}
-ExecStartPre=/bin/chmod 0777 ${PULSE_RUN_DIR}
-# Start PulseAudio in system mode with our config and pid file
-ExecStart=/usr/bin/pulseaudio --system -nF ${PULSE_SYSTEM_PA} --disallow-exit --exit-idle-time=-1 --daemonize=yes --log-target=journal --pid-file=${PULSE_RUN_DIR}/pid
-# Wait briefly for socket, then relax perms so fpp/scripts can connect
-ExecStartPost=/bin/sh -c 'for i in \$(seq 1 100); do [ -S "${PULSE_SOCKET}" ] && chmod 0666 "${PULSE_SOCKET}" && exit 0; sleep 0.1; done; exit 0'
-ExecStop=/usr/bin/pulseaudio --system --kill
+Type=simple
+ExecStartPre=/bin/mkdir -p /run/pulse
+ExecStartPre=/bin/chmod 0777 /run/pulse
+ExecStart=/usr/bin/pulseaudio --system -nF /etc/pulse/system.pa --disallow-exit --exit-idle-time=-1 --log-target=journal
 Restart=on-failure
 RestartSec=1
 
@@ -121,30 +127,17 @@ RestartSec=1
 WantedBy=multi-user.target
 EOF
 
-  $SUDO systemctl daemon-reload
-  $SUDO systemctl enable --now "$SERVICE_NAME" || true
+  chmod 644 "$svc"
+  systemctl daemon-reload
+  systemctl enable --now announcementassistant-pulse.service
+  log "Enabled and started announcementassistant-pulse.service"
 }
 
-ensure_plugin_perms() {
-  # Make scripts executable
-  if [[ -d "${PLUGIN_DIR}/scripts" ]]; then
-    $SUDO chmod +x "${PLUGIN_DIR}/scripts/"*.sh 2>/dev/null || true
-  fi
-
-  # Prefer chown by name; fall back to UID/GID 500 if needed
-  if id -u fpp >/dev/null 2>&1; then
-    $SUDO chown -R fpp:fpp "$PLUGIN_DIR" || true
-  else
-    $SUDO chown -R 500:500 "$PLUGIN_DIR" || true
-  fi
-}
-
-ensure_default_config() {
-  log "Ensuring default config exists..."
-  $SUDO mkdir -p "$CFG_DIR"
+seed_default_config_if_missing() {
+  ensure_dir "$CFG_DIR"
 
   if [[ ! -f "$CFG_FILE" ]]; then
-    $SUDO tee "$CFG_FILE" >/dev/null <<'EOF'
+    cat > "$CFG_FILE" <<'EOF'
 {
   "duck": "25%",
   "buttons": [
@@ -157,31 +150,53 @@ ensure_default_config() {
   ]
 }
 EOF
-    if id -u fpp >/dev/null 2>&1; then
-      $SUDO chown fpp:fpp "$CFG_FILE" || true
-    else
-      $SUDO chown 500:500 "$CFG_FILE" || true
-    fi
-    $SUDO chmod 664 "$CFG_FILE" || true
+    chmod 664 "$CFG_FILE" || true
+    log "Created default config: $CFG_FILE"
+  else
+    log "Config already exists: $CFG_FILE"
   fi
 }
 
-post_install_notes() {
-  log "Install complete."
-  log "Next steps in FPP UI:"
-  log "  1) Settings -> Audio/Video -> Audio Output Device: set to 'pulse'"
-  log "  2) Restart fppd"
-  log "Quick validation:"
-  log "  pactl info"
-  log "  pactl list short sinks"
-  log "  systemctl status ${SERVICE_NAME} --no-pager"
+fix_plugin_script_perms() {
+  # Make sure our scripts can execute
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+  if [[ -d "${here}/scripts" ]]; then
+    chmod 775 "${here}/scripts"/*.sh 2>/dev/null || true
+  fi
+
+  log "Ensured plugin script permissions."
 }
 
-install_deps
-write_pulse_configs
-install_service
-ensure_default_config
-ensure_plugin_perms
-post_install_notes
+post_install_notes() {
+  cat <<EOF
 
-exit 0
+[$PLUGIN_ID] Install complete.
+
+Next steps in FPP UI:
+  1) Set Audio Output Device to: pulse
+  2) Restart fppd
+
+Notes:
+  - PulseAudio system socket: /run/pulse/native
+  - Announcement audio files should be placed in: /home/fpp/media/music
+EOF
+}
+
+main() {
+  need_root
+  log "Installing ${PLUGIN_NAME}…"
+
+  install_pkgs_if_missing
+  ensure_users_in_audio_group
+  install_pulse_system_pa
+  install_systemd_service_if_available
+  seed_default_config_if_missing
+  fix_plugin_script_perms
+  post_install_notes
+
+  log "Done."
+}
+
+main "$@"
