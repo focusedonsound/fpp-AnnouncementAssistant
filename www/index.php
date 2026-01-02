@@ -98,7 +98,7 @@ async function aaSave() {
   const form = document.getElementById('aaForm');
   const fd = new FormData(form);
 
-  const res = await fetch(AA_BASE + 'save.php', {
+  const res = await fetch(AA_BASE + 'www/save.php', {
     method: 'POST',
     body: fd,
     cache: 'no-store'
@@ -113,7 +113,7 @@ async function aaSave() {
 }
 
 async function aaTrigger(i) {
-  const res = await fetch(AA_BASE + 'trigger.php&slot=' + encodeURIComponent(i), { cache: 'no-store' });
+  const res = await fetch(AA_BASE + 'www/trigger.php&slot=' + encodeURIComponent(i), { cache: 'no-store' });
 
   const text = await res.text();
   let j;
