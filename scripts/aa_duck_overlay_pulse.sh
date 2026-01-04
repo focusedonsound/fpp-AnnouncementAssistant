@@ -1,105 +1,124 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
+PLUGIN="AnnouncementAssistant"
 LOG_FILE="/home/fpp/media/logs/AnnouncementAssistant.log"
-LOCK_FILE="/run/lock/announcementassistant.lock"
-
-ANN_FILE="${1:-}"
-DUCK="${2:-25%}"
 
 log() {
   local msg="$*"
-  printf '[%(%Y-%m-%d %H:%M:%S)T] [duck] %s\n' -1 "$msg" >> "$LOG_FILE" 2>/dev/null || true
+  printf '[%(%F %T)T] %s\n' -1 "$msg" >> "$LOG_FILE"
 }
 
-die() {
-  log "ERROR: $*"
-  echo "ERROR: $*" >&2
-  exit 1
+err_trap() {
+  local rc=$?
+  log "[duck] ERROR rc=${rc} line=${LINENO} cmd=${BASH_COMMAND}"
+  exit "$rc"
 }
+trap err_trap ERR
 
-need() { command -v "$1" >/dev/null 2>&1 || die "Missing dependency: $1"; }
-need pactl
-need pacat
-need ffmpeg
+ANN_FILE="${1:-}"
+DUCK_RAW="${2:-25%}"
 
-[[ -n "$ANN_FILE" ]] || die "Missing announcement file argument"
-[[ -f "$ANN_FILE" ]] || die "Announcement file not found: $ANN_FILE"
-
-# Normalize DUCK input (must end with %)
-DUCK="${DUCK//[[:space:]]/}"
-[[ -n "$DUCK" ]] || DUCK="25%"
-if [[ "$DUCK" =~ ^[0-9]+$ ]]; then
-  DUCK="${DUCK}%"
-elif [[ ! "$DUCK" =~ ^[0-9]+%$ ]]; then
-  die "Invalid duck value '$DUCK' (expected e.g. 25%)"
+if [[ -z "$ANN_FILE" ]]; then
+  echo "Usage: $0 /path/to/audio [duck%]" >&2
+  exit 2
+fi
+if [[ ! -f "$ANN_FILE" ]]; then
+  log "[duck] ERROR: file not found: $ANN_FILE"
+  exit 3
 fi
 
-# Acquire lock (ignore triggers while busy)
-exec 9>"$LOCK_FILE" || die "Cannot open lock file: $LOCK_FILE"
+# Normalize duck input: allow "25" or "25%"
+DUCK="$DUCK_RAW"
+if [[ "$DUCK" =~ ^[0-9]+$ ]]; then
+  DUCK="${DUCK}%"
+fi
+if ! [[ "$DUCK" =~ ^[0-9]+%$ ]]; then
+  log "[duck] ERROR: invalid duck value: $DUCK_RAW"
+  exit 4
+fi
+
+# In your docker-compose you had PULSE_SERVER polluted at one point.
+# Prefer AA_PULSE_SERVER if set; otherwise force system socket.
+DEFAULT_PULSE_SERVER="unix:/run/pulse/native"
+if [[ -n "${AA_PULSE_SERVER:-}" ]]; then
+  export PULSE_SERVER="$AA_PULSE_SERVER"
+else
+  export PULSE_SERVER="$DEFAULT_PULSE_SERVER"
+fi
+export PULSE_AUTOSPAWN=0
+
+PCTL=(pactl --server "$PULSE_SERVER")
+PPLAY=(paplay --server "$PULSE_SERVER" --client-name "AnnouncementAssistant")
+
+# Lock
+LOCK_DIR="/home/fpp/media/tmp"
+mkdir -p "$LOCK_DIR"
+LOCK_FILE="$LOCK_DIR/aa_announcement.lock"
+exec 9>"$LOCK_FILE"
 if ! flock -n 9; then
-  log "BUSY: announcement already playing"
+  log "[duck] BUSY: another announcement is running"
   exit 0
 fi
 
-# Ensure we restore volumes even if something fails
-declare -A ORIG_VOL=()
-FPP_IDS=()
+# Determine sink name
+SINK="$("${PCTL[@]}" get-default-sink 2>/dev/null || true)"
+if [[ -z "$SINK" ]]; then
+  SINK="$("${PCTL[@]}" list short sinks 2>/dev/null | awk 'NR==1{print $2}' || true)"
+fi
 
-restore_volumes() {
-  if ((${#FPP_IDS[@]})); then
-    for id in "${FPP_IDS[@]}"; do
-      if [[ -n "${ORIG_VOL[$id]:-}" ]]; then
-        pactl set-sink-input-volume "$id" "${ORIG_VOL[$id]}" >/dev/null 2>&1 || true
-      fi
-    done
-    log "RESTORE: volumes restored"
-  fi
-}
-trap restore_volumes EXIT
-
-# Pick sink: prefer Default Sink, fall back to "sb"
-SINK="$(pactl info 2>/dev/null | awk -F': ' '/^Default Sink:/{print $2; exit}')"
-[[ -n "${SINK:-}" ]] || SINK="sb"
-
-# Find FPP sink-input IDs (numeric only) by scanning sink-input blocks
-# We look for application.process.binary = "fppd" (and also accept application.name="fppd" just in case)
+# Find active fppd sink-input IDs
 mapfile -t FPP_IDS < <(
-  pactl list sink-inputs 2>/dev/null \
+  "${PCTL[@]}" list sink-inputs 2>/dev/null \
   | awk '
-      /^Sink Input #/ { id=$3; sub(/^#/, "", id); isfpp=0 }
-      /application\.process\.binary = "fppd"/ { isfpp=1 }
-      /application\.name = "fppd"/ { isfpp=1 }
-      /^$/ { if (isfpp && id ~ /^[0-9]+$/) print id; id=""; isfpp=0 }
-      END { if (isfpp && id ~ /^[0-9]+$/) print id }
-    ' | sort -n -u
-)
+      /Sink Input #/ { id=$3 }
+      /application.name = "fppd"/ { print id }
+    '
+) || true
 
-# Capture original volumes
-if ((${#FPP_IDS[@]})); then
-  for id in "${FPP_IDS[@]}"; do
-    v="$(pactl get-sink-input-volume "$id" 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i ~ /%/){print $i; exit}}' | head -n 1)"
-    [[ -n "${v:-}" ]] || v="100%"
-    ORIG_VOL["$id"]="$v"
-  done
+if [[ "${#FPP_IDS[@]}" -eq 0 ]]; then
+  log "[duck] START: duck=${DUCK} file=${ANN_FILE} sink=${SINK} fpp_ids=none"
+  # Just play the announcement (no ducking needed)
+  if [[ -n "$SINK" ]] && "${PPLAY[@]}" --device="$SINK" "$ANN_FILE" >>/dev/null 2>>"$LOG_FILE"; then
+    :
+  else
+    "${PPLAY[@]}" "$ANN_FILE" >>/dev/null 2>>"$LOG_FILE"
+  fi
+  log "[duck] DONE: overlay played (no active fppd stream)"
+  exit 0
 fi
 
-log "START: duck=$DUCK file=$ANN_FILE sink=$SINK fpp_ids=${FPP_IDS[*]:-none}"
+log "[duck] START: duck=${DUCK} file=${ANN_FILE} sink=${SINK} fpp_ids=${FPP_IDS[*]}"
 
-# Apply duck (only to fppd stream)
-if ((${#FPP_IDS[@]})); then
-  for id in "${FPP_IDS[@]}"; do
-    pactl set-sink-input-volume "$id" "$DUCK" >/dev/null 2>&1 || true
+declare -A ORIG_VOL=()
+
+restore() {
+  for id in "${!ORIG_VOL[@]}"; do
+    "${PCTL[@]}" set-sink-input-volume "$id" "${ORIG_VOL[$id]}" >/dev/null 2>>"$LOG_FILE" || true
   done
+  log "[duck] RESTORE: volumes restored"
+}
+trap restore EXIT
+
+# Capture original volumes (non-fatal if read fails)
+for id in "${FPP_IDS[@]}"; do
+  raw="$("${PCTL[@]}" get-sink-input-volume "$id" 2>/dev/null || true)"
+  vol="$(awk 'match($0,/[0-9]+%/){print substr($0,RSTART,RLENGTH); exit}' <<<"$raw")"
+  [[ -n "$vol" ]] || vol="100%"
+  ORIG_VOL["$id"]="$vol"
+done
+
+# Duck fppd sink-inputs
+for id in "${FPP_IDS[@]}"; do
+  "${PCTL[@]}" set-sink-input-volume "$id" "$DUCK" >/dev/null 2>>"$LOG_FILE" || true
+done
+
+# Play announcement over the top
+if [[ -n "$SINK" ]] && "${PPLAY[@]}" --device="$SINK" "$ANN_FILE" >>/dev/null 2>>"$LOG_FILE"; then
+  :
+else
+  "${PPLAY[@]}" "$ANN_FILE" >>/dev/null 2>>"$LOG_FILE"
 fi
 
-# Play announcement as a separate Pulse stream (mixes over show audio)
-# Decode to raw PCM and feed pacat with a bit more buffering to reduce “jumpy” playback.
-ffmpeg -hide_banner -loglevel error -i "$ANN_FILE" -f s16le -ac 2 -ar 44100 - \
-  | pacat --raw --channels=2 --rate=44100 --format=s16le \
-          --latency-msec=120 --process-time-msec=30 \
-          --device="$SINK" --client-name="AnnouncementAssistant" \
-          >/dev/null 2>&1
-
-log "DONE: overlay played"
-exit 0
+log "[duck] DONE: overlay played"
+exit 0 
