@@ -1,7 +1,7 @@
 {
   "repoName": "fpp-AnnouncementAssistant",
   "name": "Announcement Assistant (Audio Ducking)",
-  "author": "Nick Scilingo (Nick S NJ)",
+  "author": "Nick Scilingo Nick S",
   "description": "Play pre-canned announcements over the currently playing show audio using PulseAudio mixing + automatic ducking. MVP includes 6 configurable buttons and ignores triggers while busy.",
   "homeURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant",
   "srcURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant.git",
@@ -11,7 +11,7 @@
     {
       "minFPPVersion": "5.0",
       "maxFPPVersion": "7.99",
-      "branch": "master",
+      "branch": "main",
       "sha": "",
       "dependencies": {
         "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
@@ -20,7 +20,7 @@
     {
       "minFPPVersion": "8.0",
       "maxFPPVersion": "8.99",
-      "branch": "master",
+      "branch": "main",
       "sha": "",
       "dependencies": {
         "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
@@ -29,7 +29,7 @@
     {
       "minFPPVersion": "9.0",
       "maxFPPVersion": "0",
-      "branch": "master",
+      "branch": "main",
       "sha": "",
       "dependencies": {
         "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
