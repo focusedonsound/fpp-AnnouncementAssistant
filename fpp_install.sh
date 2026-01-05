@@ -8,7 +8,43 @@ PLUGIN_ID="AnnouncementAssistant"
 CFG_DIR="/home/fpp/media/config"
 CFG_FILE="${CFG_DIR}/announcementassistant.json"
 
+# Defaults
+APPLY_48K=1          # optional tweak; default ON
+PIN_FPP_PULSE=1      # recommended; default ON
+
 log() { echo "[$PLUGIN_ID] $*"; }
+
+usage() {
+  cat <<EOF
+Usage: sudo ./fpp_install.sh [options]
+
+Options:
+  --no-48k        Do NOT modify /etc/pulse/daemon.conf sample rate (default is to set 48k)
+  --force-48k     Force set /etc/pulse/daemon.conf sample rate to 48k (same as default)
+  --no-pin-fpp    Do NOT create /home/fpp/.config/pulse/client.conf (recommended to keep ON)
+  -h, --help      Show this help
+
+Notes:
+  - This installer runs a system-wide PulseAudio with socket: /run/pulse/native
+  - It validates the socket exists after restart (otherwise announcements will fail silently)
+EOF
+}
+
+parse_args() {
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --no-48k) APPLY_48K=0; shift ;;
+      --force-48k) APPLY_48K=1; shift ;;
+      --no-pin-fpp) PIN_FPP_PULSE=0; shift ;;
+      -h|--help) usage; exit 0 ;;
+      *)
+        log "ERROR: Unknown option: $1"
+        usage
+        exit 1
+        ;;
+    esac
+  done
+}
 
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
@@ -63,7 +99,7 @@ ensure_users_in_audio_group() {
 
 install_pulse_system_pa() {
   # We run a system-wide Pulse server so FPP can always connect without a desktop session.
-  # Socket is local-only and open (0666) since this is a show appliance.
+  # Socket is local-only; permissions handled by systemd ExecStartPost chmod.
   local pulse_dir="/etc/pulse"
   local system_pa="${pulse_dir}/system.pa"
 
@@ -82,7 +118,8 @@ install_pulse_system_pa() {
 .nofail
 
 # Local unix socket all local processes can connect to
-load-module module-native-protocol-unix auth-anonymous=1 socket=/run/pulse/native socket_mode=0666
+# NOTE: Keep arguments minimal for compatibility across PulseAudio builds.
+load-module module-native-protocol-unix auth-anonymous=1 socket=/run/pulse/native
 
 # Detect ALSA devices
 load-module module-udev-detect
@@ -97,8 +134,48 @@ load-module module-default-device-restore
 
 EOF
 
+  # Upgrade-proofing:
+  # Some PulseAudio builds fail parsing if socket_mode is included for module-native-protocol-unix.
+  # If an older install/manual tweak left socket_mode in place, strip it.
+  sed -i -E 's/[[:space:]]+socket_mode=[0-9]+//g' "$system_pa"
+
   chmod 644 "$system_pa"
   log "Installed /etc/pulse/system.pa"
+}
+
+ensure_pulse_48k_daemon_conf() {
+  # Optional but recommended: ensure Pulse runs at 48kHz to avoid static/crackling.
+  # Idempotent + makes a one-time backup.
+  local pulse_dir="/etc/pulse"
+  local daemon_conf="${pulse_dir}/daemon.conf"
+
+  ensure_dir "$pulse_dir"
+
+  # Backup existing once
+  if [[ -f "$daemon_conf" && ! -f "${daemon_conf}.aa.bak" ]]; then
+    cp -a "$daemon_conf" "${daemon_conf}.aa.bak"
+    log "Backed up existing daemon.conf to daemon.conf.aa.bak"
+  fi
+
+  # Ensure file exists
+  [[ -f "$daemon_conf" ]] || : > "$daemon_conf"
+
+  # Set/replace default-sample-rate
+  if grep -qE '^[[:space:]]*default-sample-rate[[:space:]]*=' "$daemon_conf"; then
+    sed -i -E 's|^[[:space:]]*default-sample-rate[[:space:]]*=.*|default-sample-rate = 48000|' "$daemon_conf"
+  else
+    echo 'default-sample-rate = 48000' >> "$daemon_conf"
+  fi
+
+  # Set/replace alternate-sample-rate
+  if grep -qE '^[[:space:]]*alternate-sample-rate[[:space:]]*=' "$daemon_conf"; then
+    sed -i -E 's|^[[:space:]]*alternate-sample-rate[[:space:]]*=.*|alternate-sample-rate = 48000|' "$daemon_conf"
+  else
+    echo 'alternate-sample-rate = 48000' >> "$daemon_conf"
+  fi
+
+  chmod 644 "$daemon_conf" || true
+  log "Ensured /etc/pulse/daemon.conf sample rate is 48000 Hz"
 }
 
 install_systemd_service_if_available() {
@@ -117,9 +194,17 @@ After=sound.target
 
 [Service]
 Type=simple
-ExecStartPre=/bin/mkdir -p /run/pulse
-ExecStartPre=/bin/chmod 0777 /run/pulse
+
+# /run is tmpfs; ensure pulse runtime dirs exist each boot with correct ownership
+ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0755 /run/pulse
+ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0700 /run/pulse/.config
+ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0700 /run/pulse/.config/pulse
+
 ExecStart=/usr/bin/pulseaudio --system -nF /etc/pulse/system.pa --disallow-exit --exit-idle-time=-1 --log-target=journal
+
+# Ensure local clients (fppd + plugin scripts) can connect to the socket
+ExecStartPost=/bin/sh -c 'chmod 0666 /run/pulse/native || true'
+
 Restart=on-failure
 RestartSec=1
 
@@ -129,8 +214,54 @@ EOF
 
   chmod 644 "$svc"
   systemctl daemon-reload
-  systemctl enable --now announcementassistant-pulse.service
+  systemctl enable announcementassistant-pulse.service
+
+  # Force a clean restart so updated system.pa takes effect and /run/pulse/native is created.
+  # This avoids the "service active since months ago" stale state.
+  systemctl stop announcementassistant-pulse.service 2>/dev/null || true
+  pkill -u pulse pulseaudio 2>/dev/null || true
+  rm -rf /run/pulse
+  systemctl start announcementassistant-pulse.service
+  sleep 1
+
+  # Validate socket exists (otherwise announcements will silently fail)
+  if [[ ! -S /run/pulse/native ]]; then
+    log "ERROR: Pulse socket /run/pulse/native was not created. Announcements will not work."
+    log "Check /etc/pulse/system.pa module-native-protocol-unix line (socket_mode breaks some builds)."
+    log "Last journal lines:"
+    journalctl -u announcementassistant-pulse.service -b --no-pager | tail -n 60 || true
+    exit 1
+  fi
+
   log "Enabled and started announcementassistant-pulse.service"
+}
+
+pin_fpp_user_to_system_pulse() {
+  # Prevent user-session pulseaudio from autospawning and competing for devices (USB DAC “busy” issues)
+  if [[ "$PIN_FPP_PULSE" -ne 1 ]]; then
+    log "Skipping fpp Pulse client pin (per --no-pin-fpp)"
+    return 0
+  fi
+
+  if ! id -u fpp >/dev/null 2>&1; then
+    return 0
+  fi
+
+  local d="/home/fpp/.config/pulse"
+  ensure_dir "$d"
+
+  cat > "${d}/client.conf" <<'EOF'
+autospawn = no
+default-server = unix:/run/pulse/native
+EOF
+
+  chown -R fpp:fpp "/home/fpp/.config" 2>/dev/null || true
+  chmod 644 "${d}/client.conf" 2>/dev/null || true
+
+  # If a user-session pulseaudio is running, kill it so it stops grabbing USB devices.
+  pkill -u fpp pulseaudio 2>/dev/null || true
+
+  log "Pinned user 'fpp' Pulse client to system socket and disabled autospawn"
 }
 
 seed_default_config_if_missing() {
@@ -150,11 +281,17 @@ seed_default_config_if_missing() {
   ]
 }
 EOF
+    # Ensure UI can write settings (prevents root-owned config issues)
+    chown fpp:fpp "$CFG_FILE" 2>/dev/null || true
     chmod 664 "$CFG_FILE" || true
     log "Created default config: $CFG_FILE"
   else
     log "Config already exists: $CFG_FILE"
   fi
+
+  # Repair ownership/perms on upgrades (if a previous install created it as root)
+  chown fpp:fpp "$CFG_FILE" 2>/dev/null || true
+  chmod 664 "$CFG_FILE" 2>/dev/null || true
 }
 
 fix_plugin_script_perms() {
@@ -181,17 +318,28 @@ Next steps in FPP UI:
 Notes:
   - PulseAudio system socket: /run/pulse/native
   - Announcement audio files should be placed in: /home/fpp/media/music
+  - 48kHz tweak: $([[ "$APPLY_48K" -eq 1 ]] && echo "ENABLED" || echo "DISABLED")
+
 EOF
 }
 
 main() {
+  parse_args "$@"
   need_root
   log "Installing ${PLUGIN_NAME}…"
 
   install_pkgs_if_missing
   ensure_users_in_audio_group
   install_pulse_system_pa
+
+  if [[ "$APPLY_48K" -eq 1 ]]; then
+    ensure_pulse_48k_daemon_conf
+  else
+    log "Skipping 48kHz daemon.conf tweak (per --no-48k)"
+  fi
+
   install_systemd_service_if_available
+  pin_fpp_user_to_system_pulse
   seed_default_config_if_missing
   fix_plugin_script_perms
   post_install_notes
