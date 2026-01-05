@@ -15,6 +15,7 @@
       "sha": "",
       "dependencies": {
         "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
+      }
     },
     {
       "minFPPVersion": "8.0",
@@ -23,6 +24,7 @@
       "sha": "",
       "dependencies": {
         "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
+      }
     },
     {
       "minFPPVersion": "9.0",
@@ -31,7 +33,7 @@
       "sha": "",
       "dependencies": {
         "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
+      }
     }
   ]
 }
-
