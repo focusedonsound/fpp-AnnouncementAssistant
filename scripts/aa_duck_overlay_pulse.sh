@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # /home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_duck_overlay_pulse.sh
+#small change
 set -Eeuo pipefail
 
 LOG_FILE="/home/fpp/media/logs/AnnouncementAssistant.log"
