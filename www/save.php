@@ -1,62 +1,83 @@
 <?php
-$configFile = "/home/fpp/media/config/announcementassistant.json";
+declare(strict_types=1);
 
-function sanitizeDuck($duck) {
-  $duck = trim((string)$duck);
-  if ($duck === "") return "25%";
+header('Content-Type: application/json');
 
-  // allow "25" or "25%" -> normalize
-  if (preg_match('/^([0-9]{1,3})%?$/', $duck, $m)) {
-    $n = intval($m[1]);
-    if ($n < 0) $n = 0;
-    if ($n > 100) $n = 100;
-    return $n . "%";
-  }
+const CFG_FILE = '/home/fpp/media/config/announcementassistant.json';
 
-  return "25%";
+function respond(bool $ok, array $extra = []): void {
+    echo json_encode(array_merge(['ok' => $ok], $extra));
+    exit;
 }
 
-$buttons = [];
-$defaultDuck = "25%";
+$raw = file_get_contents('php://input');
+if ($raw === false || trim($raw) === '') {
+    respond(false, ['error' => 'Empty request body']);
+}
 
-for ($i=0; $i<6; $i++) {
-  $label = isset($_POST["label_$i"]) ? trim($_POST["label_$i"]) : ("Announcement ".($i+1));
-  $file  = isset($_POST["file_$i"])  ? trim($_POST["file_$i"])  : "";
-  $duck  = sanitizeDuck($_POST["duck_$i"] ?? "25%");
+$data = json_decode($raw, true);
+if (!is_array($data)) {
+    respond(false, ['error' => 'Invalid JSON']);
+}
 
-  if ($i === 0) $defaultDuck = $duck;
+$buttons = $data['buttons'] ?? null;
+if (!is_array($buttons) || count($buttons) !== 6) {
+    respond(false, ['error' => 'buttons must be an array of 6 items']);
+}
 
-  // Validate file if set: must exist under /home/fpp/media/music
-  if ($file !== "") {
-    $full = "/home/fpp/media/music/" . $file;
-    if (!file_exists($full)) {
-      http_response_code(400);
-      echo "ERROR: File not found: " . htmlspecialchars($file);
-      exit;
+$cleanButtons = [];
+for ($i = 0; $i < 6; $i++) {
+    $b = $buttons[$i];
+    if (!is_array($b)) $b = [];
+
+    $label = isset($b['label']) ? trim((string)$b['label']) : ('Announcement ' . ($i + 1));
+    if ($label === '') $label = 'Announcement ' . ($i + 1);
+    if (mb_strlen($label) > 50) $label = mb_substr($label, 0, 50);
+
+    $file = isset($b['file']) ? trim((string)$b['file']) : '';
+    // Allow blank. If provided, keep it constrained to "music/<filename>"
+    if ($file !== '') {
+        if (str_contains($file, '..') || str_starts_with($file, '/') || !preg_match('#^music/[^/]+$#', $file)) {
+            respond(false, ['error' => "Invalid file for slot $i"]);
+        }
+        $full = '/home/fpp/media/' . $file;
+        if (!file_exists($full)) {
+            respond(false, ['error' => "File not found for slot $i: $file"]);
+        }
     }
-  }
 
-  $buttons[] = [
-    "label" => $label,
-    "file"  => $file,
-    "duck"  => $duck
-  ];
+    $duck = isset($b['duck']) ? trim((string)$b['duck']) : '25%';
+    if (preg_match('/^\d+$/', $duck)) $duck .= '%';
+    if (!preg_match('/^(\d+)%$/', $duck, $m)) {
+        respond(false, ['error' => "Invalid duck value for slot $i"]);
+    }
+    $duckNum = (int)$m[1];
+    if ($duckNum < 0) $duckNum = 0;
+    if ($duckNum > 100) $duckNum = 100;
+    $duck = $duckNum . '%';
+
+    $cleanButtons[] = [
+        'label' => $label,
+        'file'  => $file,
+        'duck'  => $duck
+    ];
 }
 
-$cfg = [
-  // Keep legacy keys for backward compatibility (older installs / scripts)
-  "duck"        => $defaultDuck,
-  "duckDefault" => $defaultDuck,
-  "buttons"     => $buttons
+// Keep a legacy default duck too (helps older scripts, harmless for new)
+$out = [
+    'version' => 2,
+    'duck'    => '25%',
+    'buttons' => $cleanButtons
 ];
 
-$tmp = $configFile . ".tmp";
-$ok = @file_put_contents($tmp, json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
-if ($ok === false) {
-  http_response_code(500);
-  echo "ERROR: Failed to write temp config.";
-  exit;
+// Atomic write
+$tmp = CFG_FILE . '.tmp';
+if (file_put_contents($tmp, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") === false) {
+    respond(false, ['error' => 'Failed to write temp config']);
+}
+if (!rename($tmp, CFG_FILE)) {
+    @unlink($tmp);
+    respond(false, ['error' => 'Failed to replace config']);
 }
 
-@rename($tmp, $configFile);
-echo "OK: Saved.";
+respond(true, ['message' => 'Saved']);
