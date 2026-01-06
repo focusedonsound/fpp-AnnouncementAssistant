@@ -1,68 +1,78 @@
 <?php
-header('Content-Type: application/json');
+// Trigger play (slot) OR stop currently playing announcement.
+// Called by index.php via fetch().
 
 $configFile = "/home/fpp/media/config/announcementassistant.json";
-$musicRoot  = "/home/fpp/media/music";
-$script     = "/home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_play.sh";
+$playScript = "/home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_play.sh";
 
-function jsonOut($status, $message) {
-  echo json_encode(["status" => $status, "message" => $message]);
+function loadCfg($path) {
+  if (!file_exists($path)) return [];
+  $j = json_decode(@file_get_contents($path), true);
+  return is_array($j) ? $j : [];
+}
+
+function sanitizeDuck($duck) {
+  $duck = trim((string)$duck);
+  if ($duck === "") return "25%";
+  if (preg_match('/^([0-9]{1,3})%?$/', $duck, $m)) {
+    $n = intval($m[1]);
+    if ($n < 0) $n = 0;
+    if ($n > 100) $n = 100;
+    return $n . "%";
+  }
+  return "25%";
+}
+
+// Stop request
+$action = $_GET["action"] ?? "";
+if ($action === "stop") {
+  $cmd = sprintf('bash %s --stop >/dev/null 2>&1', escapeshellarg($playScript));
+  exec($cmd);
+  echo "OK: Stop sent.";
   exit;
 }
 
-function isAudioFile($path) {
-  return (bool)preg_match('/\.(wav|mp3|ogg|flac|m4a)$/i', $path);
-}
-
-function normalizeMusicPath($musicRoot, $value) {
-  $value = trim((string)$value);
-  if ($value === "") return "";
-
-  // Accept either absolute or "music/..." (future-proof)
-  if (strpos($value, "music/") === 0) {
-    $value = "/home/fpp/media/" . $value;
-  }
-
-  if (strpos($value, $musicRoot . "/") !== 0) return "";
-  if (!isAudioFile($value)) return "";
-  if (!file_exists($value)) return "";
-
-  return $value;
-}
-
 $slot = isset($_GET["slot"]) ? intval($_GET["slot"]) : -1;
-if ($slot < 0 || $slot > 5) {
-  jsonOut("ERROR", "Invalid slot");
+if ($slot < 0) {
+  http_response_code(400);
+  echo "ERROR: Missing slot.";
+  exit;
 }
 
-if (!file_exists($configFile)) {
-  jsonOut("ERROR", "Config not found. Save settings first.");
+$cfg = loadCfg($configFile);
+$buttons = $cfg["buttons"] ?? [];
+$duckDefault = $cfg["duckDefault"] ?? ($cfg["duck"] ?? "25%");
+$duckDefault = sanitizeDuck($duckDefault);
+
+if (!isset($buttons[$slot])) {
+  http_response_code(400);
+  echo "ERROR: Invalid slot.";
+  exit;
 }
 
-$cfg = json_decode(@file_get_contents($configFile), true);
-if (!is_array($cfg)) {
-  jsonOut("ERROR", "Invalid config JSON.");
+$btn = $buttons[$slot];
+$fileRel = isset($btn["file"]) ? trim($btn["file"]) : "";
+if ($fileRel === "") {
+  http_response_code(400);
+  echo "ERROR: No file set for slot.";
+  exit;
 }
 
-$duck = isset($cfg["duck"]) ? (string)$cfg["duck"] : "25%";
-$btn  = $cfg["buttons"][$slot] ?? null;
+$duck = sanitizeDuck($btn["duck"] ?? $duckDefault);
 
-if (!$btn || empty($btn["file"])) {
-  jsonOut("ERROR", "No audio file assigned to this button.");
+$ann = "/home/fpp/media/music/" . $fileRel;
+if (!file_exists($ann)) {
+  http_response_code(400);
+  echo "ERROR: File missing: " . htmlspecialchars($fileRel);
+  exit;
 }
 
-$file = normalizeMusicPath($musicRoot, $btn["file"]);
-if ($file === "") {
-  jsonOut("ERROR", "Selected file is missing or not under /home/fpp/media/music.");
-}
+$cmd = sprintf(
+  'bash %s %s %s >/dev/null 2>&1 &',
+  escapeshellarg($playScript),
+  escapeshellarg($ann),
+  escapeshellarg($duck)
+);
 
-if (!file_exists($script)) {
-  jsonOut("ERROR", "Missing script: $script");
-}
-
-// Run in background. Script itself is responsible for MVP ignore-if-busy behavior.
-$cmd = "bash " . escapeshellarg($script) . " " . escapeshellarg($file) . " " . escapeshellarg($duck) . " >/dev/null 2>&1 &";
 exec($cmd);
-
-$label = isset($btn["label"]) ? $btn["label"] : ("Announcement " . ($slot + 1));
-jsonOut("OK", "Triggered: " . $label);
+echo "OK: Triggered slot " . ($slot + 1) . " (duck " . htmlspecialchars($duck) . ")";

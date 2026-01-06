@@ -1,82 +1,62 @@
 <?php
-header('Content-Type: application/json');
-
 $configFile = "/home/fpp/media/config/announcementassistant.json";
-$musicRoot  = "/home/fpp/media/music";
-
-function jsonOut($status, $message) {
-  echo json_encode(["status" => $status, "message" => $message]);
-  exit;
-}
-
-function ensureDir($dir) {
-  if (!is_dir($dir)) {
-    @mkdir($dir, 0775, true);
-  }
-}
 
 function sanitizeDuck($duck) {
   $duck = trim((string)$duck);
-  // Accept "25" or "25%" and normalize to "25%"
-  if (preg_match('/^(\d{1,3})\s*%?$/', $duck, $m)) {
+  if ($duck === "") return "25%";
+
+  // allow "25" or "25%" -> normalize
+  if (preg_match('/^([0-9]{1,3})%?$/', $duck, $m)) {
     $n = intval($m[1]);
     if ($n < 0) $n = 0;
     if ($n > 100) $n = 100;
     return $n . "%";
   }
+
   return "25%";
 }
 
-function isAudioFile($path) {
-  return (bool)preg_match('/\.(wav|mp3|ogg|flac|m4a)$/i', $path);
-}
-
-function normalizeMusicPath($musicRoot, $value) {
-  $value = trim((string)$value);
-  if ($value === "") return "";
-
-  // Allow either absolute paths or "music/..." paths, normalize to absolute
-  if (strpos($value, "music/") === 0) {
-    $value = "/home/fpp/media/" . $value; // -> /home/fpp/media/music/...
-  }
-
-  // Must be an absolute path under $musicRoot
-  if (strpos($value, $musicRoot . "/") !== 0) return "";
-  if (!isAudioFile($value)) return "";
-  if (!file_exists($value)) return "";
-
-  return $value;
-}
-
-$duck = sanitizeDuck($_POST["duck"] ?? "25%");
-
 $buttons = [];
-for ($i = 0; $i < 6; $i++) {
-  $label = trim((string)($_POST["label_$i"] ?? ""));
-  if ($label === "") $label = "Announcement " . ($i + 1);
+$defaultDuck = "25%";
 
-  $fileRaw = $_POST["file_$i"] ?? "";
-  $fileAbs = normalizeMusicPath($musicRoot, $fileRaw);
+for ($i=0; $i<6; $i++) {
+  $label = isset($_POST["label_$i"]) ? trim($_POST["label_$i"]) : ("Announcement ".($i+1));
+  $file  = isset($_POST["file_$i"])  ? trim($_POST["file_$i"])  : "";
+  $duck  = sanitizeDuck($_POST["duck_$i"] ?? "25%");
+
+  if ($i === 0) $defaultDuck = $duck;
+
+  // Validate file if set: must exist under /home/fpp/media/music
+  if ($file !== "") {
+    $full = "/home/fpp/media/music/" . $file;
+    if (!file_exists($full)) {
+      http_response_code(400);
+      echo "ERROR: File not found: " . htmlspecialchars($file);
+      exit;
+    }
+  }
 
   $buttons[] = [
     "label" => $label,
-    "file"  => $fileAbs
+    "file"  => $file,
+    "duck"  => $duck
   ];
 }
 
 $cfg = [
-  "duck" => $duck,
-  "buttons" => $buttons
+  // Keep legacy keys for backward compatibility (older installs / scripts)
+  "duck"        => $defaultDuck,
+  "duckDefault" => $defaultDuck,
+  "buttons"     => $buttons
 ];
 
-ensureDir(dirname($configFile));
-
-$ok = @file_put_contents($configFile, json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n", LOCK_EX);
+$tmp = $configFile . ".tmp";
+$ok = @file_put_contents($tmp, json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
 if ($ok === false) {
-  jsonOut("ERROR", "Failed to write config: $configFile");
+  http_response_code(500);
+  echo "ERROR: Failed to write temp config.";
+  exit;
 }
 
-// Helpful perms (doesn't have to be perfect in Docker, but good practice)
-@chmod($configFile, 0664);
-
-jsonOut("OK", "Saved settings.");
+@rename($tmp, $configFile);
+echo "OK: Saved.";
