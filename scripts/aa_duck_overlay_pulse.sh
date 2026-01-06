@@ -28,17 +28,18 @@ get_default_sink() {
 }
 
 # Identify FPP sink-input ids and strip leading "#"
+# NOTE: don't use variable name "match" (reserved/builtin in some awk implementations)
 get_fpp_sink_inputs() {
   pactl list sink-inputs 2>/dev/null | awk '
-    /^Sink Input #/ { id=$3; sub(/^#/, "", id); match=0 }
-    /application.process.binary = "fppd"/ { match=1 }
-    /application.name = "fppd"/ { match=1 }
-    /application.name = "FPP"/ { match=1 }
+    /^Sink Input #/ { id=$3; sub(/^#/, "", id); is_fpp=0 }
+    /application.process.binary = "fppd"/ { is_fpp=1 }
+    /application.name = "fppd"/ { is_fpp=1 }
+    /application.name = "FPP"/ { is_fpp=1 }
     /^$/ {
-      if (match && id != "") print id
-      id=""; match=0
+      if (is_fpp && id != "") print id
+      id=""; is_fpp=0
     }
-    END { if (match && id != "") print id }
+    END { if (is_fpp && id != "") print id }
   ' | sort -u | xargs echo -n
 }
 
@@ -79,7 +80,7 @@ if [[ -z "$SINK" ]]; then
   exit 1
 fi
 
-FPP_IDS="$(get_fpp_sink_inputs)"
+FPP_IDS="$(get_fpp_sink_inputs || true)"
 log "START: duck=$DUCK file=$FILE sink=$SINK fpp_ids=${FPP_IDS:-none}"
 
 declare -A ORIG
