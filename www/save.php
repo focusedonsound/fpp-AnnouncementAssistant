@@ -1,83 +1,72 @@
 <?php
-declare(strict_types=1);
+ini_set('display_errors', '0');
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
 
-header('Content-Type: application/json');
+$configFile = "/home/fpp/media/config/announcementassistant.json";
 
-const CFG_FILE = '/home/fpp/media/config/announcementassistant.json';
-
-function respond(bool $ok, array $extra = []): void {
-    echo json_encode(array_merge(['ok' => $ok], $extra));
-    exit;
+function respond($ok, $msg, $extra = []) {
+  echo json_encode(array_merge([
+    "status" => $ok ? "OK" : "ERROR",
+    "message" => $msg
+  ], $extra));
+  exit;
 }
 
-$raw = file_get_contents('php://input');
-if ($raw === false || trim($raw) === '') {
-    respond(false, ['error' => 'Empty request body']);
+function parseDuck($v, $fallback = "25%") {
+  $v = trim((string)$v);
+  if ($v === "") $v = $fallback;
+  $v = rtrim($v, "%");
+  if ($v === "" || !is_numeric($v)) $v = rtrim($fallback, "%");
+  $n = (int)$v;
+  if ($n < 0) $n = 0;
+  if ($n > 100) $n = 100;
+  return $n . "%";
 }
 
-$data = json_decode($raw, true);
-if (!is_array($data)) {
-    respond(false, ['error' => 'Invalid JSON']);
+$dir = dirname($configFile);
+if (!is_dir($dir)) {
+  respond(false, "Config directory missing: $dir");
+}
+if (!is_writable($dir)) {
+  respond(false, "Config directory not writable: $dir");
 }
 
-$buttons = $data['buttons'] ?? null;
-if (!is_array($buttons) || count($buttons) !== 6) {
-    respond(false, ['error' => 'buttons must be an array of 6 items']);
+$cfg = ["duck"=>"25%","buttons"=>[]];
+if (file_exists($configFile)) {
+  $j = json_decode(@file_get_contents($configFile), true);
+  if (is_array($j)) $cfg = array_merge($cfg, $j);
 }
 
-$cleanButtons = [];
-for ($i = 0; $i < 6; $i++) {
-    $b = $buttons[$i];
-    if (!is_array($b)) $b = [];
+$defaultDuck = isset($_POST["duck_default"]) ? parseDuck($_POST["duck_default"], ($cfg["duck"] ?? "25%")) : ($cfg["duck"] ?? "25%");
+$cfg["duck"] = $defaultDuck;
 
-    $label = isset($b['label']) ? trim((string)$b['label']) : ('Announcement ' . ($i + 1));
-    if ($label === '') $label = 'Announcement ' . ($i + 1);
-    if (mb_strlen($label) > 50) $label = mb_substr($label, 0, 50);
+$buttons = [];
+for ($i=0; $i<6; $i++) {
+  $label = trim((string)($_POST["label_$i"] ?? ("Announcement ".($i+1))));
+  if ($label === "") $label = "Announcement ".($i+1);
 
-    $file = isset($b['file']) ? trim((string)$b['file']) : '';
-    // Allow blank. If provided, keep it constrained to "music/<filename>"
-    if ($file !== '') {
-        if (str_contains($file, '..') || str_starts_with($file, '/') || !preg_match('#^music/[^/]+$#', $file)) {
-            respond(false, ['error' => "Invalid file for slot $i"]);
-        }
-        $full = '/home/fpp/media/' . $file;
-        if (!file_exists($full)) {
-            respond(false, ['error' => "File not found for slot $i: $file"]);
-        }
-    }
+  $file  = trim((string)($_POST["file_$i"] ?? ""));
+  $duck  = parseDuck($_POST["duck_$i"] ?? "", $defaultDuck);
 
-    $duck = isset($b['duck']) ? trim((string)$b['duck']) : '25%';
-    if (preg_match('/^\d+$/', $duck)) $duck .= '%';
-    if (!preg_match('/^(\d+)%$/', $duck, $m)) {
-        respond(false, ['error' => "Invalid duck value for slot $i"]);
-    }
-    $duckNum = (int)$m[1];
-    if ($duckNum < 0) $duckNum = 0;
-    if ($duckNum > 100) $duckNum = 100;
-    $duck = $duckNum . '%';
-
-    $cleanButtons[] = [
-        'label' => $label,
-        'file'  => $file,
-        'duck'  => $duck
-    ];
+  $buttons[] = [
+    "label" => $label,
+    "file"  => $file,
+    "duck"  => $duck
+  ];
 }
 
-// Keep a legacy default duck too (helps older scripts, harmless for new)
-$out = [
-    'version' => 2,
-    'duck'    => '25%',
-    'buttons' => $cleanButtons
-];
+$cfg["buttons"] = $buttons;
 
 // Atomic write
-$tmp = CFG_FILE . '.tmp';
-if (file_put_contents($tmp, json_encode($out, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n") === false) {
-    respond(false, ['error' => 'Failed to write temp config']);
+$tmp = $configFile . ".tmp";
+$data = json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";
+if (@file_put_contents($tmp, $data) === false) {
+  respond(false, "Failed to write temp config: $tmp");
 }
-if (!rename($tmp, CFG_FILE)) {
-    @unlink($tmp);
-    respond(false, ['error' => 'Failed to replace config']);
+if (!@rename($tmp, $configFile)) {
+  @unlink($tmp);
+  respond(false, "Failed to replace config file: $configFile");
 }
 
-respond(true, ['message' => 'Saved']);
+respond(true, "Saved.");

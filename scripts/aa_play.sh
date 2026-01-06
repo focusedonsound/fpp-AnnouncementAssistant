@@ -1,75 +1,52 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
-CONFIG_FILE="/home/fpp/media/config/announcementassistant.json"
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DUCKER="${SCRIPT_DIR}/aa_duck_overlay_pulse.sh"
-LOG_FILE="/home/fpp/media/logs/AnnouncementAssistant.log"
+PLUGIN_DIR="/home/fpp/media/plugins/fpp-AnnouncementAssistant"
+CFG="/home/fpp/media/config/announcementassistant.json"
+DUCKER="${PLUGIN_DIR}/scripts/aa_duck_overlay_pulse.sh"
 
-log() {
-  local msg="$*"
-  printf '[%(%F %T)T] %s\n' -1 "$msg" >> "$LOG_FILE"
-}
-
-usage() {
-  echo "Usage:" >&2
-  echo "  $0 <slot 0-5>" >&2
-  echo "  $0 </path/to/audio> [duck%]" >&2
-  exit 2
-}
-
-arg1="${1:-}"
-[[ -n "$arg1" ]] || usage
-[[ -x "$DUCKER" ]] || { echo "ERROR: ducker not executable: $DUCKER" >&2; exit 3; }
-
-# Slot mode
-if [[ "$arg1" =~ ^[0-9]+$ ]]; then
-  slot="$arg1"
-  [[ "$slot" -ge 0 && "$slot" -le 5 ]] || { echo "ERROR: slot must be 0-5" >&2; exit 2; }
-  [[ -f "$CONFIG_FILE" ]] || { echo "ERROR: missing config: $CONFIG_FILE" >&2; exit 4; }
-
-  duck="$(python3 - <<PY
-import json
-cfg=json.load(open("${CONFIG_FILE}"))
-slot=int(${slot})
-default=cfg.get("duck","25%")
-buttons=cfg.get("buttons",[]) or []
-d=default
-if slot < len(buttons) and isinstance(buttons[slot], dict):
-    d = buttons[slot].get("duck") or default
-print(d)
-PY
-)"
-
-  ann_file="$(python3 - <<PY
-import json
-cfg=json.load(open("${CONFIG_FILE}"))
-slot=int(${slot})
-buttons=cfg.get("buttons",[]) or []
-if slot < 0 or slot >= len(buttons):
-    print("")
-else:
-    print((buttons[slot] or {}).get("file","") or "")
-PY
-)"
-
-  if [[ -z "$ann_file" ]]; then
-    echo "ERROR: No file configured for slot $slot" >&2
-    exit 5
-  fi
-
-  if [[ "$ann_file" == music/* ]]; then
-    ann_file="/home/fpp/media/${ann_file}"
-  fi
-
-  [[ -f "$ann_file" ]] || { echo "ERROR: file not found: $ann_file" >&2; exit 6; }
-
-  log "[play] PLAY slot=${slot} duck=${duck} file=${ann_file}"
-  exec "$DUCKER" "$ann_file" "$duck"
+SLOT="${1:-}"
+if [[ -z "$SLOT" || ! "$SLOT" =~ ^[0-5]$ ]]; then
+  echo "Usage: $0 <slot 0-5>" >&2
+  exit 1
 fi
 
-# Direct mode
-ann_file="$arg1"
-duck="${2:-25%}"
-log "[play] PLAY direct duck=${duck} file=${ann_file}"
-exec "$DUCKER" "$ann_file" "$duck"
+mapfile -t vals < <(python3 - "$SLOT" <<'PY'
+import json,sys
+cfg_path="/home/fpp/media/config/announcementassistant.json"
+slot=int(sys.argv[1])
+cfg={}
+try:
+  with open(cfg_path,"r") as f:
+    cfg=json.load(f)
+except Exception:
+  cfg={}
+duck_default=cfg.get("duck","25%")
+buttons=cfg.get("buttons",[])
+btn=buttons[slot] if slot < len(buttons) else {}
+file=str(btn.get("file","") or "")
+duck=str(btn.get("duck","") or duck_default or "25%")
+print(file)
+print(duck)
+PY
+)
+
+FILE="${vals[0]:-}"
+DUCK="${vals[1]:-25%}"
+
+if [[ -z "$FILE" ]]; then
+  echo "No file configured for slot $SLOT" >&2
+  exit 1
+fi
+
+# Allow relative selection (from /home/fpp/media/music) if someone stored that way
+if [[ "$FILE" != /* ]]; then
+  FILE="/home/fpp/media/music/$FILE"
+fi
+
+if [[ ! -f "$FILE" ]]; then
+  echo "File not found: $FILE" >&2
+  exit 1
+fi
+
+exec "$DUCKER" "$DUCK" "$FILE"

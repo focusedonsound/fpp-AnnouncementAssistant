@@ -1,263 +1,203 @@
 <?php
-// Announcement Assistant (Audio Ducking) - UI
-// - Per-button duck %
-// - Stop button
-// - Correct save endpoint: plugin.php?...&nopage=1&page=www/save.php
+$configFile = "/home/fpp/media/config/announcementassistant.json";
 
-declare(strict_types=1);
+function loadConfig($path) {
+  $cfg = ["duck"=>"25%","buttons"=>[]];
 
-const AA_PLUGIN   = 'fpp-AnnouncementAssistant';
-const AA_CFG_FILE = '/home/fpp/media/config/announcementassistant.json';
+  if (file_exists($path)) {
+    $j = json_decode(@file_get_contents($path), true);
+    if (is_array($j)) $cfg = array_merge($cfg, $j);
+  }
 
-function aa_default_config(): array {
-    $buttons = [];
-    for ($i = 1; $i <= 6; $i++) {
-        $buttons[] = ['label' => "Announcement $i", 'file' => '', 'duck' => '25%'];
-    }
-    return [
-        'version' => 2,
-        // Keep a legacy default too (doesn't hurt, helps backward compat)
-        'duck'    => '25%',
-        'buttons' => $buttons
-    ];
+  if (!isset($cfg["buttons"]) || !is_array($cfg["buttons"])) $cfg["buttons"] = [];
+  while (count($cfg["buttons"]) < 6) {
+    $cfg["buttons"][] = ["label"=>"Announcement ".(count($cfg["buttons"])+1), "file"=>"", "duck"=>$cfg["duck"]];
+  }
+
+  // Back-compat: ensure each button has duck
+  for ($i=0; $i<6; $i++) {
+    if (!isset($cfg["buttons"][$i]["label"])) $cfg["buttons"][$i]["label"] = "Announcement ".($i+1);
+    if (!isset($cfg["buttons"][$i]["file"]))  $cfg["buttons"][$i]["file"]  = "";
+    if (!isset($cfg["buttons"][$i]["duck"]) || $cfg["buttons"][$i]["duck"] === "") $cfg["buttons"][$i]["duck"] = $cfg["duck"];
+  }
+
+  if (!isset($cfg["duck"]) || $cfg["duck"] === "") $cfg["duck"] = "25%";
+  return $cfg;
 }
 
-function aa_load_config(): array {
-    if (!file_exists(AA_CFG_FILE)) {
-        return aa_default_config();
-    }
-    $raw = @file_get_contents(AA_CFG_FILE);
-    if ($raw === false) {
-        return aa_default_config();
-    }
-    $cfg = json_decode($raw, true);
-    if (!is_array($cfg)) {
-        return aa_default_config();
-    }
-    return $cfg;
+function listAudio($base) {
+  $out = [];
+  if (!is_dir($base)) return $out;
+  $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($base));
+  foreach ($it as $f) {
+    if ($f->isDir()) continue;
+    $p = $f->getPathname();
+    if (preg_match('/\.(wav|mp3|ogg|flac|m4a)$/i', $p)) $out[] = $p;
+  }
+  sort($out);
+  return $out;
 }
 
-function aa_ensure_buttons(array $cfg): array {
-    $legacyDuck = isset($cfg['duck']) && is_string($cfg['duck']) ? $cfg['duck'] : '25%';
-
-    $buttons = $cfg['buttons'] ?? [];
-    if (!is_array($buttons)) $buttons = [];
-
-    // Ensure 6 buttons
-    for ($i = 0; $i < 6; $i++) {
-        if (!isset($buttons[$i]) || !is_array($buttons[$i])) {
-            $buttons[$i] = ['label' => 'Announcement ' . ($i + 1), 'file' => '', 'duck' => $legacyDuck];
-        }
-        $buttons[$i]['label'] = isset($buttons[$i]['label']) ? (string)$buttons[$i]['label'] : ('Announcement ' . ($i + 1));
-        $buttons[$i]['file']  = isset($buttons[$i]['file'])  ? (string)$buttons[$i]['file']  : '';
-        $buttons[$i]['duck']  = isset($buttons[$i]['duck'])  ? (string)$buttons[$i]['duck']  : $legacyDuck;
-
-        // Normalize duck to "NN%"
-        if (preg_match('/^\d+$/', $buttons[$i]['duck'])) {
-            $buttons[$i]['duck'] .= '%';
-        }
-        if (!preg_match('/^\d+%$/', $buttons[$i]['duck'])) {
-            $buttons[$i]['duck'] = $legacyDuck;
-        }
-    }
-
-    return $buttons;
+function duckToNumber($duck) {
+  $duck = trim((string)$duck);
+  $duck = rtrim($duck, "%");
+  if ($duck === "" || !is_numeric($duck)) return 25;
+  $n = (int)$duck;
+  if ($n < 0) $n = 0;
+  if ($n > 100) $n = 100;
+  return $n;
 }
 
-function aa_list_music_files(): array {
-    $base = '/home/fpp/media/music';
-    $out  = [];
-
-    if (!is_dir($base)) return $out;
-
-    $exts = ['mp3','wav','ogg','flac','m4a'];
-    foreach ($exts as $ext) {
-        foreach (glob($base . '/*.' . $ext) ?: [] as $path) {
-            $name = basename($path);
-            $out[] = 'music/' . $name;
-        }
-    }
-    sort($out, SORT_NATURAL | SORT_FLAG_CASE);
-    return $out;
-}
-
-$cfg      = aa_load_config();
-$buttons  = aa_ensure_buttons($cfg);
-$files    = aa_list_music_files();
-
-function h(string $s): string { return htmlspecialchars($s, ENT_QUOTES); }
-
-// Base for AJAX calls (nopage=1 so we get clean JSON/text back)
-$AA_BASE = "plugin.php?plugin=" . AA_PLUGIN . "&nopage=1&page=";
-
+$cfg = loadConfig($configFile);
+$buttons = $cfg["buttons"];
+$audioFiles = listAudio("/home/fpp/media/music");
 ?>
-<div class="aa-wrap">
-  <p>
-    Each announcement can have its own duck % (how loud the show audio stays while the announcement plays).
-    Lower % = more ducking. Example: <span style="color:#c00">15%</span> ducks harder than <span style="color:#090">40%</span>.
-  </p>
 
-  <table class="fppTable">
-    <thead>
+<h1 class="title">Announcement Assistant (Audio Ducking)</h1>
+<p>
+  Each announcement can have its own duck % (how loud the show audio stays while the announcement plays).
+  Lower % = more ducking. Example: <strong>15%</strong> ducks harder than <strong>40%</strong>.
+</p>
+
+<form id="aaForm" onsubmit="return false;">
+  <!-- keep a top-level duck in config as a fallback/back-compat, but don’t show as “the” setting -->
+  <input type="hidden" name="duck_default" value="<?php echo htmlspecialchars($cfg["duck"]); ?>" />
+
+  <table class="fppTable" style="width:100%; max-width:1200px;">
+    <tr>
+      <th style="width:40px;">#</th>
+      <th style="width:280px;">Label</th>
+      <th>Audio File</th>
+      <th style="width:140px;">Duck %</th>
+      <th style="width:220px;">Test</th>
+    </tr>
+
+    <?php for ($i=0; $i<6; $i++): ?>
       <tr>
-        <th style="width: 25%;">Label</th>
-        <th>Audio File</th>
-        <th style="width: 110px;">Duck %</th>
-        <th style="width: 170px;">Test</th>
-      </tr>
-    </thead>
-    <tbody>
-    <?php for ($i = 0; $i < 6; $i++): ?>
-      <?php
-        $b = $buttons[$i];
-        $duckNum = (int) rtrim($b['duck'], '%');
-      ?>
-      <tr data-slot="<?= $i ?>">
+        <td><?php echo ($i+1); ?></td>
+
         <td>
-          <input class="aa-label" type="text" value="<?= h($b['label']) ?>" style="width: 98%;">
+          <input type="text"
+                 name="label_<?php echo $i; ?>"
+                 value="<?php echo htmlspecialchars($buttons[$i]["label"]); ?>"
+                 style="width:100%;" />
         </td>
+
         <td>
-          <select class="aa-file" style="width: 100%;">
+          <select name="file_<?php echo $i; ?>" style="width:100%;">
             <option value="">-- select --</option>
-            <?php foreach ($files as $f): ?>
-              <option value="<?= h($f) ?>" <?= ($b['file'] === $f ? 'selected' : '') ?>><?= h(basename($f)) ?></option>
+            <?php foreach ($audioFiles as $f): ?>
+              <option value="<?php echo htmlspecialchars($f); ?>" <?php echo ($buttons[$i]["file"]===$f) ? "selected" : ""; ?>>
+                <?php echo htmlspecialchars(str_replace("/home/fpp/media/music/","",$f)); ?>
+              </option>
             <?php endforeach; ?>
           </select>
         </td>
+
         <td>
-          <div style="display:flex; gap:6px; align-items:center;">
-            <input class="aa-duck" type="number" min="0" max="100" step="1" value="<?= $duckNum ?>" style="width: 70px;">
-            <span>%</span>
-          </div>
+          <input type="number"
+                 name="duck_<?php echo $i; ?>"
+                 min="0" max="100" step="1"
+                 value="<?php echo duckToNumber($buttons[$i]["duck"]); ?>"
+                 style="width:90px;" /> %
         </td>
+
         <td>
-          <div style="display:flex; gap:8px; align-items:center;">
-            <button class="buttons btn-outline-light" type="button" onclick="aaPlay(<?= $i ?>)">Play</button>
-            <button class="buttons btn-outline-light" type="button" onclick="aaStop()">Stop</button>
-          </div>
+          <button type="button" class="buttons btn-outline-primary" onclick="aaTrigger(<?php echo $i; ?>)">Play</button>
+          <button type="button" class="buttons btn-outline-secondary" onclick="aaStop()">Stop</button>
         </td>
       </tr>
     <?php endfor; ?>
-    </tbody>
   </table>
 
-  <div style="margin-top: 12px;">
-    <button class="buttons btn-outline-light" type="button" onclick="aaSave()">Save</button>
+  <div style="margin-top:12px;">
+    <button type="button" class="buttons btn-outline-success" onclick="aaSave()">Save</button>
+    <span id="aaStatus" style="margin-left:10px;"></span>
   </div>
+</form>
 
-  <hr>
+<hr/>
 
-  <h3>Live Buttons</h3>
-  <div id="aa-live" style="display:flex; gap:10px; flex-wrap:wrap;">
-    <?php for ($i = 0; $i < 6; $i++): ?>
-      <button class="buttons btn-outline-light" type="button" onclick="aaPlay(<?= $i ?>)">
-        <?= h($buttons[$i]['label']) ?>
-      </button>
-    <?php endfor; ?>
-  </div>
+<h3>Live Buttons</h3>
+<div style="display:flex; gap:10px; flex-wrap:wrap;">
+  <?php for ($i=0; $i<6; $i++): ?>
+    <button type="button"
+            class="buttons btn-outline-primary"
+            style="min-width:220px; min-height:48px;"
+            onclick="aaTrigger(<?php echo $i; ?>)">
+      <?php echo htmlspecialchars($buttons[$i]["label"]); ?>
+    </button>
+  <?php endfor; ?>
+
+  <button type="button"
+          class="buttons btn-outline-secondary"
+          style="min-width:220px; min-height:48px;"
+          onclick="aaStop()">
+    Stop Current
+  </button>
 </div>
 
 <script>
-const AA_BASE = <?= json_encode($AA_BASE) ?>;
+  // IMPORTANT: build URLs off pluginBase when available (prevents “save.php not found”)
+  const AA_PLUGIN_BASE =
+    (typeof pluginBase !== 'undefined' && pluginBase)
+      ? pluginBase
+      : 'plugin.php?plugin=fpp-AnnouncementAssistant&';
 
-function aaToast(msg, ok=true) {
-  try {
-    if (window.$ && $.jGrowl) {
-      $.jGrowl(msg, { theme: ok ? 'jGrowl-notification' : 'jGrowl-error' });
-      return;
+  const AA_BASE = AA_PLUGIN_BASE + 'nopage=1&page=';
+
+  function aaUrl(rel) {
+    // rel like: 'save.php' or 'trigger.php'
+    return AA_BASE + 'www/' + rel;
+  }
+
+  async function aaReadJson(res) {
+    const text = await res.text();
+    try { return JSON.parse(text); }
+    catch (e) {
+      return { status: "ERROR", message: "Non-JSON response (wrong URL). First 200 chars:\n" + text.slice(0,200) };
     }
-  } catch(e) {}
-  alert(msg);
-}
+  }
 
-function aaReadRows() {
-  const rows = document.querySelectorAll('tr[data-slot]');
-  const buttons = [];
-  rows.forEach(r => {
-    const label = (r.querySelector('.aa-label')?.value || '').trim();
-    const file  = (r.querySelector('.aa-file')?.value  || '').trim();
-    let duckNum = parseInt((r.querySelector('.aa-duck')?.value || '25'), 10);
-    if (Number.isNaN(duckNum)) duckNum = 25;
-    if (duckNum < 0) duckNum = 0;
-    if (duckNum > 100) duckNum = 100;
-    buttons.push({ label, file, duck: `${duckNum}%` });
-  });
-  return buttons;
-}
+  function aaSetStatus(msg) {
+    const el = document.getElementById('aaStatus');
+    if (el) el.textContent = msg || "";
+  }
 
-async function aaSave() {
-  const payload = {
-    version: 2,
-    // keep a legacy "duck" default for backward compat
-    duck: "25%",
-    buttons: aaReadRows()
-  };
+  async function aaSave() {
+    aaSetStatus("Saving...");
+    const form = document.getElementById('aaForm');
+    const fd = new FormData(form);
 
-  const url = AA_BASE + "www/save.php";
-  let respText = "";
-
-  try {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload)
+    const res = await fetch(aaUrl('save.php'), {
+      method: 'POST',
+      body: fd,
+      cache: 'no-store'
     });
-    respText = await resp.text();
 
-    // Expect JSON
-    let data;
-    try {
-      data = JSON.parse(respText);
-    } catch (e) {
-      aaToast("Save failed: non-JSON response (wrong URL). First 200 chars:\n" + respText.slice(0,200), false);
-      return;
-    }
-
-    if (!data.ok) {
-      aaToast("Save failed: " + (data.error || "unknown error"), false);
-      return;
-    }
-
-    aaToast("Saved.");
-    // Refresh to reflect saved labels in the Live Buttons section
-    window.location.reload();
-  } catch (e) {
-    aaToast("Save exception: " + e, false);
-    if (respText) console.log(respText);
+    const j = await aaReadJson(res);
+    aaSetStatus(j.message || j.status || "OK");
   }
-}
 
-async function aaPlay(slot) {
-  const url = AA_BASE + "www/trigger.php?slot=" + encodeURIComponent(slot);
-  try {
-    const resp = await fetch(url);
-    const txt  = await resp.text();
-    let data;
-    try { data = JSON.parse(txt); } catch(e) { data = { ok:false, error:"non-JSON response", raw: txt.slice(0,200)}; }
-    if (!data.ok) {
-      aaToast("Play failed: " + (data.error || data.raw || "unknown"), false);
-      return;
-    }
-    aaToast("Playing announcement...");
-  } catch (e) {
-    aaToast("Play exception: " + e, false);
-  }
-}
+  async function aaTrigger(slot) {
+    aaSetStatus("Playing...");
+    const res = await fetch(
+      aaUrl('trigger.php') + '&action=play&slot=' + encodeURIComponent(slot),
+      { cache: 'no-store' }
+    );
 
-async function aaStop() {
-  const url = AA_BASE + "www/stop.php";
-  try {
-    const resp = await fetch(url);
-    const txt  = await resp.text();
-    let data;
-    try { data = JSON.parse(txt); } catch(e) { data = { ok:false, error:"non-JSON response", raw: txt.slice(0,200)}; }
-    if (!data.ok) {
-      aaToast("Stop failed: " + (data.error || data.raw || "unknown"), false);
-      return;
-    }
-    aaToast(data.message || "Stopped.");
-  } catch (e) {
-    aaToast("Stop exception: " + e, false);
+    const j = await aaReadJson(res);
+    aaSetStatus(j.message || j.status || "OK");
   }
-}
+
+  async function aaStop() {
+    aaSetStatus("Stopping...");
+    const res = await fetch(
+      aaUrl('trigger.php') + '&action=stop',
+      { cache: 'no-store' }
+    );
+
+    const j = await aaReadJson(res);
+    aaSetStatus(j.message || j.status || "OK");
+  }
 </script>

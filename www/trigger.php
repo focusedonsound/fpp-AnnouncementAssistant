@@ -1,78 +1,41 @@
 <?php
-// Trigger play (slot) OR stop currently playing announcement.
-// Called by index.php via fetch().
+ini_set('display_errors', '0');
+header('Content-Type: application/json; charset=utf-8');
+header('Cache-Control: no-store');
 
+$pluginDir = "/home/fpp/media/plugins/fpp-AnnouncementAssistant";
 $configFile = "/home/fpp/media/config/announcementassistant.json";
-$playScript = "/home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_play.sh";
 
-function loadCfg($path) {
-  if (!file_exists($path)) return [];
-  $j = json_decode(@file_get_contents($path), true);
-  return is_array($j) ? $j : [];
+function respond($ok, $msg, $extra = []) {
+  echo json_encode(array_merge([
+    "status" => $ok ? "OK" : "ERROR",
+    "message" => $msg
+  ], $extra));
+  exit;
 }
 
-function sanitizeDuck($duck) {
-  $duck = trim((string)$duck);
-  if ($duck === "") return "25%";
-  if (preg_match('/^([0-9]{1,3})%?$/', $duck, $m)) {
-    $n = intval($m[1]);
-    if ($n < 0) $n = 0;
-    if ($n > 100) $n = 100;
-    return $n . "%";
-  }
-  return "25%";
-}
+$action = strtolower(trim((string)($_GET["action"] ?? "play")));
 
-// Stop request
-$action = $_GET["action"] ?? "";
 if ($action === "stop") {
-  $cmd = sprintf('bash %s --stop >/dev/null 2>&1', escapeshellarg($playScript));
-  exec($cmd);
-  echo "OK: Stop sent.";
-  exit;
+  $stop = $pluginDir . "/scripts/aa_stop.sh";
+  if (!file_exists($stop)) respond(false, "Stop script missing: $stop");
+  @exec("bash " . escapeshellarg($stop) . " >/dev/null 2>&1 &");
+  respond(true, "Stop requested.");
 }
 
-$slot = isset($_GET["slot"]) ? intval($_GET["slot"]) : -1;
-if ($slot < 0) {
-  http_response_code(400);
-  echo "ERROR: Missing slot.";
-  exit;
-}
+$slot = isset($_GET["slot"]) ? (int)$_GET["slot"] : -1;
+if ($slot < 0 || $slot > 5) respond(false, "Invalid slot: $slot");
 
-$cfg = loadCfg($configFile);
-$buttons = $cfg["buttons"] ?? [];
-$duckDefault = $cfg["duckDefault"] ?? ($cfg["duck"] ?? "25%");
-$duckDefault = sanitizeDuck($duckDefault);
+$cfg = @json_decode(@file_get_contents($configFile), true);
+if (!is_array($cfg) || !isset($cfg["buttons"][$slot])) respond(false, "Config missing/invalid.");
 
-if (!isset($buttons[$slot])) {
-  http_response_code(400);
-  echo "ERROR: Invalid slot.";
-  exit;
-}
+$file = trim((string)($cfg["buttons"][$slot]["file"] ?? ""));
+if ($file === "") respond(false, "No audio file configured for slot ".($slot+1));
 
-$btn = $buttons[$slot];
-$fileRel = isset($btn["file"]) ? trim($btn["file"]) : "";
-if ($fileRel === "") {
-  http_response_code(400);
-  echo "ERROR: No file set for slot.";
-  exit;
-}
+$play = $pluginDir . "/scripts/aa_play.sh";
+if (!file_exists($play)) respond(false, "Play script missing: $play");
 
-$duck = sanitizeDuck($btn["duck"] ?? $duckDefault);
+$cmd = "bash " . escapeshellarg($play) . " " . escapeshellarg((string)$slot) . " >/dev/null 2>&1 &";
+@exec($cmd);
 
-$ann = "/home/fpp/media/music/" . $fileRel;
-if (!file_exists($ann)) {
-  http_response_code(400);
-  echo "ERROR: File missing: " . htmlspecialchars($fileRel);
-  exit;
-}
-
-$cmd = sprintf(
-  'bash %s %s %s >/dev/null 2>&1 &',
-  escapeshellarg($playScript),
-  escapeshellarg($ann),
-  escapeshellarg($duck)
-);
-
-exec($cmd);
-echo "OK: Triggered slot " . ($slot + 1) . " (duck " . htmlspecialchars($duck) . ")";
+respond(true, "Triggered slot ".($slot+1).".");
