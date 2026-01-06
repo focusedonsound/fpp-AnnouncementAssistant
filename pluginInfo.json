@@ -9,15 +9,6 @@
   "allowUpdates": 1,
   "versions": [
     {
-      "minFPPVersion": "5.0",
-      "maxFPPVersion": "7.99",
-      "branch": "main",
-      "sha": "",
-      "dependencies": {
-        "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
-      }
-    },
-    {
       "minFPPVersion": "8.0",
       "maxFPPVersion": "8.99",
       "branch": "main",
