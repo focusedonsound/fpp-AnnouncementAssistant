@@ -137,7 +137,7 @@ logLine($logFile, "PLAY slot=$slot label=" . json_encode($label) . " file=" . js
 
 // Run background + capture PID
 $cmd = "bash -lc " . escapeshellarg(
-    "bash " . escapeshellarg($script) . " " . escapeshellarg($file) . " " . escapeshellarg($duck) .
+    "bash " . escapeshellarg($script) . " " . escapeshellarg($file) . " " . escapeshellarg($duck) . " " . escapeshellarg((string)$slot) .
     " >> " . escapeshellarg($logFile) . " 2>&1 & echo $!"
 );
 

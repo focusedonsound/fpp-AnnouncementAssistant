@@ -54,18 +54,26 @@ $cfg["duck"] = $defaultDuck;
 $cfg["fade_down"] = parseFloat01($_POST["fade_down"] ?? "", $cfg["fade_down"] ?? 0.5);
 $cfg["fade_up"]   = parseFloat01($_POST["fade_up"]   ?? "", $cfg["fade_up"]   ?? 1.0);
 
+// Interrupt protection settings
+$validBehaviors = ["ignore", "queue", "interrupt"];
+$behavior = trim((string)($_POST["behavior"] ?? "ignore"));
+$cfg["behavior"] = in_array($behavior, $validBehaviors) ? $behavior : "ignore";
+$cfg["cooldown"]  = parseFloat01($_POST["cooldown"] ?? "", $cfg["cooldown"] ?? 3.0);
+
 $buttons = [];
 for ($i=0; $i<6; $i++) {
-  $label = trim((string)($_POST["label_$i"] ?? ("Announcement ".($i+1))));
+  $label     = trim((string)($_POST["label_$i"] ?? ("Announcement ".($i+1))));
   if ($label === "") $label = "Announcement ".($i+1);
 
-  $file  = trim((string)($_POST["file_$i"] ?? ""));
-  $duck  = parseDuck($_POST["duck_$i"] ?? "", $defaultDuck);
+  $file      = trim((string)($_POST["file_$i"] ?? ""));
+  $duck      = parseDuck($_POST["duck_$i"] ?? "", $defaultDuck);
+  $interrupt = isset($_POST["interrupt_$i"]) && $_POST["interrupt_$i"] === "1";
 
   $buttons[] = [
-    "label" => $label,
-    "file"  => $file,
-    "duck"  => $duck
+    "label"     => $label,
+    "file"      => $file,
+    "duck"      => $duck,
+    "interrupt" => $interrupt,
   ];
 }
 

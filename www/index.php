@@ -2,7 +2,8 @@
 $configFile = "/home/fpp/media/config/announcementassistant.json";
 
 function loadConfig($path) {
-  $cfg = ["duck"=>"25%","fade_down"=>0.5,"fade_up"=>1.0,"buttons"=>[]];
+  $cfg = ["duck"=>"25%","fade_down"=>0.5,"fade_up"=>1.0,
+          "behavior"=>"ignore","cooldown"=>3.0,"buttons"=>[]];
 
   if (file_exists($path)) {
     $j = json_decode(@file_get_contents($path), true);
@@ -11,18 +12,21 @@ function loadConfig($path) {
 
   if (!isset($cfg["buttons"]) || !is_array($cfg["buttons"])) $cfg["buttons"] = [];
   while (count($cfg["buttons"]) < 6) {
-    $cfg["buttons"][] = ["label"=>"Announcement ".(count($cfg["buttons"])+1), "file"=>"", "duck"=>$cfg["duck"]];
+    $cfg["buttons"][] = ["label"=>"Announcement ".(count($cfg["buttons"])+1), "file"=>"", "duck"=>$cfg["duck"], "interrupt"=>false];
   }
 
   for ($i=0; $i<6; $i++) {
     if (!isset($cfg["buttons"][$i]["label"])) $cfg["buttons"][$i]["label"] = "Announcement ".($i+1);
     if (!isset($cfg["buttons"][$i]["file"]))  $cfg["buttons"][$i]["file"]  = "";
     if (!isset($cfg["buttons"][$i]["duck"]) || $cfg["buttons"][$i]["duck"] === "") $cfg["buttons"][$i]["duck"] = $cfg["duck"];
+    if (!isset($cfg["buttons"][$i]["interrupt"])) $cfg["buttons"][$i]["interrupt"] = false;
   }
 
   if (!isset($cfg["duck"])      || $cfg["duck"]      === "") $cfg["duck"]      = "25%";
   if (!isset($cfg["fade_down"]) || $cfg["fade_down"] === "") $cfg["fade_down"] = 0.5;
   if (!isset($cfg["fade_up"])   || $cfg["fade_up"]   === "") $cfg["fade_up"]   = 1.0;
+  if (!isset($cfg["behavior"])  || $cfg["behavior"]  === "") $cfg["behavior"]  = "ignore";
+  if (!isset($cfg["cooldown"])  || $cfg["cooldown"]  === "") $cfg["cooldown"]  = 3.0;
   return $cfg;
 }
 
@@ -71,10 +75,13 @@ $audioFiles = listAudio("/home/fpp/media/music");
         <thead>
           <tr>
             <th style="width:40px; padding:8px 8px;">#</th>
-            <th style="width:240px; padding:8px 8px;">Label</th>
+            <th style="width:220px; padding:8px 8px;">Label</th>
             <th style="padding:8px 8px;">Audio File</th>
-            <th style="width:130px; padding:8px 8px;">Duck %</th>
-            <th style="width:200px; padding:8px 8px;">Test</th>
+            <th style="width:110px; padding:8px 8px;">Duck %</th>
+            <th style="width:80px; padding:8px 8px; text-align:center;" title="Slot always interrupts current playback regardless of global policy">
+              <i class="fas fa-fw fa-bolt" title="Interrupt"></i> Priority
+            </th>
+            <th style="width:180px; padding:8px 8px;">Test</th>
           </tr>
         </thead>
         <tbody>
@@ -108,6 +115,18 @@ $audioFiles = listAudio("/home/fpp/media/music");
                        min="0" max="100" step="1"
                        value="<?php echo duckToNumber($buttons[$i]["duck"]); ?>" />
                 <span class="input-group-text">%</span>
+              </div>
+            </td>
+
+            <td style="text-align:center;">
+              <div class="form-check d-flex justify-content-center mb-0">
+                <input class="form-check-input"
+                       type="checkbox"
+                       name="interrupt_<?php echo $i; ?>"
+                       id="interrupt_<?php echo $i; ?>"
+                       value="1"
+                       <?php echo !empty($buttons[$i]["interrupt"]) ? "checked" : ""; ?>
+                       title="This slot always interrupts current playback" />
               </div>
             </td>
 
@@ -170,6 +189,58 @@ $audioFiles = listAudio("/home/fpp/media/music");
                        value="<?php echo number_format((float)$cfg['fade_up'], 1); ?>" />
                 <span class="input-group-text">sec</span>
               </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Behavior Settings ──────────────────────────────────────────── -->
+  <div class="fppTableWrapper fppTableWrapperAsTable mb-3">
+    <div class="fppTableContents fppFThScrollContainer">
+      <table class="fppSelectableRowTable" style="width:100%;">
+        <thead>
+          <tr>
+            <th colspan="4" style="padding:8px 8px;">
+              <i class="fas fa-fw fa-shield-alt"></i> Interrupt Protection
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="width:200px; padding:8px;">
+              <label class="mb-0"><i class="fas fa-fw fa-traffic-light"></i> When Busy</label>
+              <div class="text-muted small">Trigger arrives while playing</div>
+            </td>
+            <td style="width:200px; padding:8px;">
+              <select name="behavior" id="aaBehavior" class="form-control form-control-sm">
+                <option value="ignore"    <?php echo ($cfg["behavior"]==="ignore")    ? "selected" : ""; ?>>
+                  Ignore — drop the trigger
+                </option>
+                <option value="queue"     <?php echo ($cfg["behavior"]==="queue")     ? "selected" : ""; ?>>
+                  Queue — play after current finishes
+                </option>
+                <option value="interrupt" <?php echo ($cfg["behavior"]==="interrupt") ? "selected" : ""; ?>>
+                  Interrupt — stop current, play new
+                </option>
+              </select>
+            </td>
+            <td style="width:200px; padding:8px;">
+              <label class="mb-0"><i class="fas fa-fw fa-hourglass-half"></i> Cooldown</label>
+              <div class="text-muted small">Ignore re-triggers for N sec after play</div>
+            </td>
+            <td style="padding:8px;">
+              <div class="input-group input-group-sm" style="max-width:160px;" id="cooldownGroup">
+                <input type="number"
+                       class="form-control form-control-sm"
+                       name="cooldown"
+                       id="cooldownInput"
+                       min="0" max="60" step="0.5"
+                       value="<?php echo number_format((float)$cfg['cooldown'], 1); ?>" />
+                <span class="input-group-text">sec</span>
+              </div>
+              <div class="text-muted small mt-1" id="cooldownNote">Only applies to Ignore mode</div>
             </td>
           </tr>
         </tbody>
@@ -267,6 +338,21 @@ $audioFiles = listAudio("/home/fpp/media/music");
     const ok = (j.status === 'OK');
     aaNotify(j.message || (ok ? 'Playing...' : 'Trigger failed.'), !ok);
   }
+
+  // Dim cooldown field when behavior isn't "ignore"
+  function aaUpdateBehaviorUI() {
+    const behavior = document.getElementById('aaBehavior')?.value;
+    const group    = document.getElementById('cooldownGroup');
+    const note     = document.getElementById('cooldownNote');
+    const input    = document.getElementById('cooldownInput');
+    if (!group) return;
+    const relevant = (behavior === 'ignore');
+    group.style.opacity = relevant ? '1' : '0.4';
+    if (input) input.disabled = !relevant;
+    if (note)  note.style.opacity = relevant ? '0.7' : '0.4';
+  }
+  document.getElementById('aaBehavior')?.addEventListener('change', aaUpdateBehaviorUI);
+  aaUpdateBehaviorUI();
 
   async function aaStop() {
     const res = await fetch(

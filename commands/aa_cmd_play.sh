@@ -51,4 +51,5 @@ if [[ -z "$FILE" ]]; then
 fi
 
 log "PLAY slot=$SLOT file=$FILE duck=$DUCK"
-exec bash "$PLAY_SCRIPT" "$FILE" "$DUCK"
+# Pass slot as 3rd arg so aa_play.sh can apply per-slot interrupt policy
+exec bash "$PLAY_SCRIPT" "$FILE" "$DUCK" "$SLOT"
