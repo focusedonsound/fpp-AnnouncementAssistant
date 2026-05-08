@@ -1,12 +1,6 @@
-#!/bin/bash
-set -euo pipefail
+#!/usr/bin/env bash
+# aa_stop.sh — stop any currently playing announcement
+# Called by stop.php
 
-# Stop the currently running duck/overlay script (trap restores volume)
-pgrep -f "aa_duck_overlay_pulse.sh" >/dev/null 2>&1 && \
-  pgrep -f "aa_duck_overlay_pulse.sh" | xargs -r kill -TERM || true
-
-# Also stop any paplay client launched by the plugin (extra safety)
-pgrep -f "paplay.*AnnouncementAssistant" >/dev/null 2>&1 && \
-  pgrep -f "paplay.*AnnouncementAssistant" | xargs -r kill -TERM || true
-
-exit 0
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+exec bash "${SCRIPT_DIR}/aa_play.sh" --stop

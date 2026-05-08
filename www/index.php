@@ -2,7 +2,7 @@
 $configFile = "/home/fpp/media/config/announcementassistant.json";
 
 function loadConfig($path) {
-  $cfg = ["duck"=>"25%","buttons"=>[]];
+  $cfg = ["duck"=>"25%","fade_down"=>0.5,"fade_up"=>1.0,"buttons"=>[]];
 
   if (file_exists($path)) {
     $j = json_decode(@file_get_contents($path), true);
@@ -20,7 +20,9 @@ function loadConfig($path) {
     if (!isset($cfg["buttons"][$i]["duck"]) || $cfg["buttons"][$i]["duck"] === "") $cfg["buttons"][$i]["duck"] = $cfg["duck"];
   }
 
-  if (!isset($cfg["duck"]) || $cfg["duck"] === "") $cfg["duck"] = "25%";
+  if (!isset($cfg["duck"])      || $cfg["duck"]      === "") $cfg["duck"]      = "25%";
+  if (!isset($cfg["fade_down"]) || $cfg["fade_down"] === "") $cfg["fade_down"] = 0.5;
+  if (!isset($cfg["fade_up"])   || $cfg["fade_up"]   === "") $cfg["fade_up"]   = 1.0;
   return $cfg;
 }
 
@@ -121,6 +123,55 @@ $audioFiles = listAudio("/home/fpp/media/music");
             </td>
           </tr>
           <?php endfor; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Fade Settings ──────────────────────────────────────────────── -->
+  <div class="fppTableWrapper fppTableWrapperAsTable mb-3">
+    <div class="fppTableContents fppFThScrollContainer">
+      <table class="fppSelectableRowTable" style="width:100%;">
+        <thead>
+          <tr>
+            <th colspan="4" style="padding:8px 8px;">
+              <i class="fas fa-fw fa-sliders-h"></i> Fade Settings
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="width:200px; padding:8px;">
+              <label class="mb-0"><i class="fas fa-fw fa-arrow-down"></i> Fade Down</label>
+              <div class="text-muted small">Seconds to duck show audio</div>
+            </td>
+            <td style="width:160px; padding:8px;">
+              <div class="input-group input-group-sm">
+                <input type="number"
+                       class="form-control form-control-sm"
+                       name="fade_down"
+                       id="fadeDown"
+                       min="0" max="10" step="0.1"
+                       value="<?php echo number_format((float)$cfg['fade_down'], 1); ?>" />
+                <span class="input-group-text">sec</span>
+              </div>
+            </td>
+            <td style="width:200px; padding:8px;">
+              <label class="mb-0"><i class="fas fa-fw fa-arrow-up"></i> Fade Up</label>
+              <div class="text-muted small">Seconds to restore show audio</div>
+            </td>
+            <td style="padding:8px;">
+              <div class="input-group input-group-sm" style="max-width:160px;">
+                <input type="number"
+                       class="form-control form-control-sm"
+                       name="fade_up"
+                       id="fadeUp"
+                       min="0" max="10" step="0.1"
+                       value="<?php echo number_format((float)$cfg['fade_up'], 1); ?>" />
+                <span class="input-group-text">sec</span>
+              </div>
+            </td>
+          </tr>
         </tbody>
       </table>
     </div>

@@ -24,6 +24,15 @@ function parseDuck($v, $fallback = "25%") {
   return $n . "%";
 }
 
+function parseFloat01($v, $default) {
+  $v = trim((string)$v);
+  if ($v === "" || !is_numeric($v)) return $default;
+  $f = (float)$v;
+  if ($f < 0.0) $f = 0.0;
+  if ($f > 10.0) $f = 10.0;
+  return round($f, 2);
+}
+
 $dir = dirname($configFile);
 if (!is_dir($dir)) {
   respond(false, "Config directory missing: $dir");
@@ -32,7 +41,7 @@ if (!is_writable($dir)) {
   respond(false, "Config directory not writable: $dir");
 }
 
-$cfg = ["duck"=>"25%","buttons"=>[]];
+$cfg = ["duck"=>"25%","fade_down"=>0.5,"fade_up"=>1.0,"buttons"=>[]];
 if (file_exists($configFile)) {
   $j = json_decode(@file_get_contents($configFile), true);
   if (is_array($j)) $cfg = array_merge($cfg, $j);
@@ -40,6 +49,10 @@ if (file_exists($configFile)) {
 
 $defaultDuck = isset($_POST["duck_default"]) ? parseDuck($_POST["duck_default"], ($cfg["duck"] ?? "25%")) : ($cfg["duck"] ?? "25%");
 $cfg["duck"] = $defaultDuck;
+
+// Fade settings
+$cfg["fade_down"] = parseFloat01($_POST["fade_down"] ?? "", $cfg["fade_down"] ?? 0.5);
+$cfg["fade_up"]   = parseFloat01($_POST["fade_up"]   ?? "", $cfg["fade_up"]   ?? 1.0);
 
 $buttons = [];
 for ($i=0; $i<6; $i++) {
