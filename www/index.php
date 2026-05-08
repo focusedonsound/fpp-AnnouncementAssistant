@@ -14,7 +14,6 @@ function loadConfig($path) {
     $cfg["buttons"][] = ["label"=>"Announcement ".(count($cfg["buttons"])+1), "file"=>"", "duck"=>$cfg["duck"]];
   }
 
-  // Back-compat: ensure each button has duck
   for ($i=0; $i<6; $i++) {
     if (!isset($cfg["buttons"][$i]["label"])) $cfg["buttons"][$i]["label"] = "Announcement ".($i+1);
     if (!isset($cfg["buttons"][$i]["file"]))  $cfg["buttons"][$i]["file"]  = "";
@@ -48,97 +47,117 @@ function duckToNumber($duck) {
   return $n;
 }
 
-$cfg = loadConfig($configFile);
+$cfg     = loadConfig($configFile);
 $buttons = $cfg["buttons"];
 $audioFiles = listAudio("/home/fpp/media/music");
 ?>
 
-<h1 class="title">Announcement Assistant (Audio Ducking)</h1>
-<p>
-  Each announcement can have its own duck % (how loud the show audio stays while the announcement plays).
-  Lower % = more ducking. Example: <strong>15%</strong> ducks harder than <strong>40%</strong>.
+<h2><i class="fas fa-fw fa-bullhorn"></i> Announcement Assistant</h2>
+<p class="text-muted">
+  Play pre-recorded announcements over active show audio with automatic PulseAudio ducking.<br>
+  <strong>Duck %</strong> controls how loud the show audio stays while the announcement plays &mdash;
+  lower = more ducking. Example: <strong>15%</strong> ducks harder than <strong>40%</strong>.
 </p>
 
 <form id="aaForm" onsubmit="return false;">
-  <!-- keep a top-level duck in config as a fallback/back-compat, but don’t show as “the” setting -->
   <input type="hidden" name="duck_default" value="<?php echo htmlspecialchars($cfg["duck"]); ?>" />
 
-  <table class="fppTable" style="width:100%; max-width:1200px;">
-    <tr>
-      <th style="width:40px;">#</th>
-      <th style="width:280px;">Label</th>
-      <th>Audio File</th>
-      <th style="width:140px;">Duck %</th>
-      <th style="width:220px;">Test</th>
-    </tr>
+  <!-- ── Config Table ─────────────────────────────────────────────── -->
+  <div class="fppTableWrapper fppTableWrapperAsTable mb-3">
+    <div class="fppTableContents">
+      <table class="fppSelectableRowTable fppStickyTheadTable" style="width:100%;">
+        <thead>
+          <tr>
+            <th style="width:40px;">#</th>
+            <th style="width:240px;">Label</th>
+            <th>Audio File</th>
+            <th style="width:130px;">Duck %</th>
+            <th style="width:200px;">Test</th>
+          </tr>
+        </thead>
+        <tbody>
+          <?php for ($i=0; $i<6; $i++): ?>
+          <tr>
+            <td><?php echo ($i+1); ?></td>
 
-    <?php for ($i=0; $i<6; $i++): ?>
-      <tr>
-        <td><?php echo ($i+1); ?></td>
+            <td>
+              <input type="text"
+                     class="form-control form-control-sm"
+                     name="label_<?php echo $i; ?>"
+                     value="<?php echo htmlspecialchars($buttons[$i]["label"]); ?>" />
+            </td>
 
-        <td>
-          <input type="text"
-                 name="label_<?php echo $i; ?>"
-                 value="<?php echo htmlspecialchars($buttons[$i]["label"]); ?>"
-                 style="width:100%;" />
-        </td>
+            <td>
+              <select name="file_<?php echo $i; ?>" class="form-control form-control-sm">
+                <option value="">-- select --</option>
+                <?php foreach ($audioFiles as $f): ?>
+                  <option value="<?php echo htmlspecialchars($f); ?>" <?php echo ($buttons[$i]["file"]===$f) ? "selected" : ""; ?>>
+                    <?php echo htmlspecialchars(str_replace("/home/fpp/media/music/","",$f)); ?>
+                  </option>
+                <?php endforeach; ?>
+              </select>
+            </td>
 
-        <td>
-          <select name="file_<?php echo $i; ?>" style="width:100%;">
-            <option value="">-- select --</option>
-            <?php foreach ($audioFiles as $f): ?>
-              <option value="<?php echo htmlspecialchars($f); ?>" <?php echo ($buttons[$i]["file"]===$f) ? "selected" : ""; ?>>
-                <?php echo htmlspecialchars(str_replace("/home/fpp/media/music/","",$f)); ?>
-              </option>
-            <?php endforeach; ?>
-          </select>
-        </td>
+            <td>
+              <div class="input-group input-group-sm">
+                <input type="number"
+                       class="form-control form-control-sm"
+                       name="duck_<?php echo $i; ?>"
+                       min="0" max="100" step="1"
+                       value="<?php echo duckToNumber($buttons[$i]["duck"]); ?>" />
+                <span class="input-group-text">%</span>
+              </div>
+            </td>
 
-        <td>
-          <input type="number"
-                 name="duck_<?php echo $i; ?>"
-                 min="0" max="100" step="1"
-                 value="<?php echo duckToNumber($buttons[$i]["duck"]); ?>"
-                 style="width:90px;" /> %
-        </td>
+            <td>
+              <button type="button" class="buttons btn-outline-light btn-sm me-1"
+                      onclick="aaTrigger(<?php echo $i; ?>)">
+                <i class="fas fa-fw fa-play"></i> Play
+              </button>
+              <button type="button" class="buttons btn-outline-light btn-sm"
+                      onclick="aaStop()">
+                <i class="fas fa-fw fa-stop"></i> Stop
+              </button>
+            </td>
+          </tr>
+          <?php endfor; ?>
+        </tbody>
+      </table>
+    </div>
+  </div>
 
-        <td>
-          <button type="button" class="buttons btn-outline-primary" onclick="aaTrigger(<?php echo $i; ?>)">Play</button>
-          <button type="button" class="buttons btn-outline-secondary" onclick="aaStop()">Stop</button>
-        </td>
-      </tr>
-    <?php endfor; ?>
-  </table>
-
-  <div style="margin-top:12px;">
-    <button type="button" class="buttons btn-outline-success" onclick="aaSave()">Save</button>
-    <span id="aaStatus" style="margin-left:10px;"></span>
+  <div class="mb-4">
+    <button type="button" class="buttons btn-outline-light" onclick="aaSave()">
+      <i class="fas fa-fw fa-save"></i> Save Settings
+    </button>
   </div>
 </form>
 
 <hr/>
 
-<h3>Live Buttons</h3>
-<div style="display:flex; gap:10px; flex-wrap:wrap;">
+<!-- ── Live Trigger Buttons ───────────────────────────────────────── -->
+<h4><i class="fas fa-fw fa-bolt"></i> Live Triggers</h4>
+<div class="d-flex flex-wrap gap-2 mb-3">
   <?php for ($i=0; $i<6; $i++): ?>
     <button type="button"
-            class="buttons btn-outline-primary"
-            style="min-width:220px; min-height:48px;"
+            class="buttons btn-outline-light"
+            style="min-width:180px; min-height:48px;"
+            id="liveBtn<?php echo $i; ?>"
             onclick="aaTrigger(<?php echo $i; ?>)">
+      <i class="fas fa-fw fa-play"></i>
       <?php echo htmlspecialchars($buttons[$i]["label"]); ?>
     </button>
   <?php endfor; ?>
 
   <button type="button"
-          class="buttons btn-outline-secondary"
-          style="min-width:220px; min-height:48px;"
+          class="buttons btn-outline-light"
+          style="min-width:180px; min-height:48px;"
           onclick="aaStop()">
-    Stop Current
+    <i class="fas fa-fw fa-stop"></i> Stop Current
   </button>
 </div>
 
 <script>
-  // IMPORTANT: build URLs off pluginBase when available (prevents “save.php not found”)
   const AA_PLUGIN_BASE =
     (typeof pluginBase !== 'undefined' && pluginBase)
       ? pluginBase
@@ -147,7 +166,6 @@ $audioFiles = listAudio("/home/fpp/media/music");
   const AA_BASE = AA_PLUGIN_BASE + 'nopage=1&page=';
 
   function aaUrl(rel) {
-    // rel like: 'save.php' or 'trigger.php'
     return AA_BASE + 'www/' + rel;
   }
 
@@ -155,19 +173,17 @@ $audioFiles = listAudio("/home/fpp/media/music");
     const text = await res.text();
     try { return JSON.parse(text); }
     catch (e) {
-      return { status: "ERROR", message: "Non-JSON response (wrong URL). First 200 chars:\n" + text.slice(0,200) };
+      return { status: "ERROR", message: "Non-JSON response. First 200 chars:\n" + text.slice(0, 200) };
     }
   }
 
-  function aaSetStatus(msg) {
-    const el = document.getElementById('aaStatus');
-    if (el) el.textContent = msg || "";
+  function aaNotify(msg, isError) {
+    $.jGrowl(msg, { themeState: isError ? 'danger' : 'success' });
   }
 
   async function aaSave() {
-    aaSetStatus("Saving...");
-    const form = document.getElementById('aaForm');
-    const fd = new FormData(form);
+    const form  = document.getElementById('aaForm');
+    const fd    = new FormData(form);
 
     const res = await fetch(aaUrl('save.php'), {
       method: 'POST',
@@ -176,28 +192,39 @@ $audioFiles = listAudio("/home/fpp/media/music");
     });
 
     const j = await aaReadJson(res);
-    aaSetStatus(j.message || j.status || "OK");
+    const ok = (j.status === 'OK');
+    aaNotify(j.message || (ok ? 'Saved.' : 'Save failed.'), !ok);
+
+    // Refresh live button labels from form values
+    for (let i = 0; i < 6; i++) {
+      const labelInput = document.querySelector(`[name="label_${i}"]`);
+      const btn = document.getElementById('liveBtn' + i);
+      if (labelInput && btn) {
+        btn.innerHTML = '<i class="fas fa-fw fa-play"></i> ' +
+          labelInput.value.trim() || ('Announcement ' + (i + 1));
+      }
+    }
   }
 
   async function aaTrigger(slot) {
-    aaSetStatus("Playing...");
     const res = await fetch(
       aaUrl('trigger.php') + '&action=play&slot=' + encodeURIComponent(slot),
       { cache: 'no-store' }
     );
 
     const j = await aaReadJson(res);
-    aaSetStatus(j.message || j.status || "OK");
+    const ok = (j.status === 'OK');
+    aaNotify(j.message || (ok ? 'Playing...' : 'Trigger failed.'), !ok);
   }
 
   async function aaStop() {
-    aaSetStatus("Stopping...");
     const res = await fetch(
       aaUrl('trigger.php') + '&action=stop',
       { cache: 'no-store' }
     );
 
     const j = await aaReadJson(res);
-    aaSetStatus(j.message || j.status || "OK");
+    const ok = (j.status === 'OK');
+    aaNotify(j.message || (ok ? 'Stopped.' : 'Stop failed.'), !ok);
   }
 </script>
