@@ -1,0 +1,22 @@
+[
+  {
+    "name": "Announcement Assistant - Play",
+    "description": "Play an announcement slot with automatic PulseAudio ducking of show audio.",
+    "script": "aa_cmd_play.sh",
+    "args": [
+      {
+        "name": "slot",
+        "type": "string",
+        "description": "Announcement Slot",
+        "optional": false,
+        "contentListUrl": "plugin.php?plugin=fpp-AnnouncementAssistant&nopage=1&page=www/slots.php",
+        "allowBlanks": false
+      }
+    ]
+  },
+  {
+    "name": "Announcement Assistant - Stop",
+    "description": "Stop the currently playing announcement and restore show audio.",
+    "script": "aa_cmd_stop.sh"
+  }
+]
