@@ -64,15 +64,15 @@ $audioFiles = listAudio("/home/fpp/media/music");
 
   <!-- ── Config Table ─────────────────────────────────────────────── -->
   <div class="fppTableWrapper fppTableWrapperAsTable mb-3">
-    <div class="fppTableContents">
-      <table class="fppSelectableRowTable fppStickyTheadTable" style="width:100%;">
+    <div class="fppTableContents fppFThScrollContainer">
+      <table id="aaConfigTable" class="fppSelectableRowTable fppStickyTheadTable" style="width:100%;">
         <thead>
           <tr>
-            <th style="width:40px;">#</th>
-            <th style="width:240px;">Label</th>
-            <th>Audio File</th>
-            <th style="width:130px;">Duck %</th>
-            <th style="width:200px;">Test</th>
+            <th style="width:40px; padding:8px 8px;">#</th>
+            <th style="width:240px; padding:8px 8px;">Label</th>
+            <th style="padding:8px 8px;">Audio File</th>
+            <th style="width:130px; padding:8px 8px;">Duck %</th>
+            <th style="width:200px; padding:8px 8px;">Test</th>
           </tr>
         </thead>
         <tbody>
