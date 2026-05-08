@@ -58,7 +58,21 @@ $buttons = $cfg["buttons"];
 $audioFiles = listAudio("/home/fpp/media/music");
 ?>
 
-<h2><i class="fas fa-fw fa-bullhorn"></i> Announcement Assistant</h2>
+<div class="d-flex justify-content-between align-items-center mb-2">
+  <h2 class="mb-0"><i class="fas fa-fw fa-bullhorn"></i> Announcement Assistant</h2>
+  <div class="d-flex gap-2">
+    <a href="https://buymeacoffee.com/jm9pwtesct"
+       target="_blank" rel="noopener noreferrer"
+       class="buttons btn-outline-light">
+      <i class="fas fa-fw fa-mug-hot"></i> Buy Me a Coffee
+    </a>
+    <a href="https://paypal.me/NScilingo"
+       target="_blank" rel="noopener noreferrer"
+       class="buttons btn-outline-light">
+      <i class="fab fa-fw fa-paypal"></i> Donate via PayPal
+    </a>
+  </div>
+</div>
 <p class="text-muted">
   Play pre-recorded announcements over active show audio with automatic PulseAudio ducking.<br>
   <strong>Duck %</strong> controls how loud the show audio stays while the announcement plays &mdash;
