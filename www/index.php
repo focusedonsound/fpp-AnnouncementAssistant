@@ -56,6 +56,16 @@ function duckToNumber($duck) {
 $cfg     = loadConfig($configFile);
 $buttons = $cfg["buttons"];
 $audioFiles = listAudio("/home/fpp/media/music");
+
+// ── Play counts ───────────────────────────────────────────────────────────
+function loadPlayCounts() {
+  $path = "/home/fpp/media/logs/aa_play_counts.json";
+  if (!file_exists($path)) return [];
+  $j = json_decode(@file_get_contents($path), true);
+  return is_array($j) ? $j : [];
+}
+$playCounts = loadPlayCounts();
+$today = date('Y-m-d');
 ?>
 
 <div class="d-flex justify-content-between align-items-center mb-2">
@@ -94,6 +104,10 @@ $audioFiles = listAudio("/home/fpp/media/music");
             <th style="width:110px; padding:8px 8px;">Duck %</th>
             <th style="width:80px; padding:8px 8px; text-align:center;" title="Slot always interrupts current playback regardless of global policy">
               <i class="fas fa-fw fa-bolt" title="Interrupt"></i> Priority
+            </th>
+            <th style="width:110px; padding:8px 8px; text-align:center;"
+                title="How many times this announcement has been played today and in total.">
+              <i class="fas fa-fw fa-chart-bar"></i> Played
             </th>
             <th style="width:180px; padding:8px 8px;">Test</th>
           </tr>
@@ -142,6 +156,31 @@ $audioFiles = listAudio("/home/fpp/media/music");
                        <?php echo !empty($buttons[$i]["interrupt"]) ? "checked" : ""; ?>
                        title="This slot always interrupts current playback" />
               </div>
+            </td>
+
+            <?php
+              $slotKey  = (string)$i;
+              $slotData = $playCounts[$slotKey] ?? null;
+              $todayCount = 0;
+              $totalCount = 0;
+              if ($slotData) {
+                $totalCount = (int)($slotData['total'] ?? 0);
+                $todayCount = ($slotData['date'] ?? '') === $today
+                              ? (int)($slotData['today'] ?? 0) : 0;
+              }
+            ?>
+            <td style="text-align:center; white-space:nowrap;"
+                title="Today: <?php echo $todayCount; ?> play<?php echo $todayCount !== 1 ? 's' : ''; ?> &bull; All time: <?php echo $totalCount; ?>">
+              <?php if ($totalCount > 0): ?>
+                <span class="badge bg-primary" style="font-size:0.85rem;">
+                  <?php echo $todayCount; ?> today
+                </span>
+                <div class="text-muted" style="font-size:0.75rem; margin-top:2px;">
+                  <?php echo $totalCount; ?> total
+                </div>
+              <?php else: ?>
+                <span class="text-muted" style="font-size:0.8rem;">&mdash;</span>
+              <?php endif; ?>
             </td>
 
             <td>
@@ -262,9 +301,14 @@ $audioFiles = listAudio("/home/fpp/media/music");
     </div>
   </div>
 
-  <div class="mb-4">
+  <div class="mb-4 d-flex gap-2 align-items-center">
     <button type="button" class="buttons btn-outline-light" onclick="aaSave()">
       <i class="fas fa-fw fa-save"></i> Save Settings
+    </button>
+    <button type="button" class="buttons btn-outline-secondary btn-sm"
+            onclick="aaResetCounts()"
+            title="Reset all play counts back to zero. This cannot be undone.">
+      <i class="fas fa-fw fa-rotate-left"></i> Reset Play Counts
     </button>
   </div>
 
@@ -419,5 +463,14 @@ $audioFiles = listAudio("/home/fpp/media/music");
     const j = await aaReadJson(res);
     const ok = (j.status === 'OK');
     aaNotify(j.message || (ok ? 'Stopped.' : 'Stop failed.'), !ok);
+  }
+
+  async function aaResetCounts() {
+    if (!confirm('Reset all play counts to zero?\nThis cannot be undone.')) return;
+    const res = await fetch(aaUrl('trigger.php') + '&action=reset_counts', { cache: 'no-store' });
+    const j   = await aaReadJson(res);
+    const ok  = (j.status === 'OK');
+    aaNotify(j.message || (ok ? 'Play counts reset.' : 'Reset failed.'), !ok);
+    if (ok) location.reload();   // refresh so badge counts update
   }
 </script>

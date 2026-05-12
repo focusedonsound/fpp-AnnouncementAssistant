@@ -135,6 +135,29 @@ log "DISPATCH: duck=$DUCK file=$FILE"
 RC=$?
 log "DONE rc=$RC"
 
+# ── Play count tracking ────────────────────────────────────────────────────
+# Increment today + lifetime count for this slot on successful play.
+COUNT_FILE="/home/fpp/media/logs/aa_play_counts.json"
+if [[ $RC -eq 0 && -n "$SLOT" ]]; then
+    python3 - "$SLOT" "$COUNT_FILE" << 'PYEOF' 2>/dev/null || true
+import json, sys
+from datetime import date
+slot, path = sys.argv[1], sys.argv[2]
+try:    d = json.load(open(path))
+except: d = {}
+if slot not in d:
+    d[slot] = {"total": 0, "today": 0, "date": ""}
+today = str(date.today())
+if d[slot].get("date") != today:
+    d[slot]["today"] = 0
+    d[slot]["date"]  = today
+d[slot]["total"] += 1
+d[slot]["today"] += 1
+json.dump(d, open(path, "w"))
+PYEOF
+    log "COUNT: incremented slot=$SLOT"
+fi
+
 # ── Telemetry (non-blocking, fire-and-forget) ──────────────────────────────
 # Both calls run in background so they never delay or block playback.
 TELEMETRY_PY="${SCRIPT_DIR}/aa_telemetry.py"

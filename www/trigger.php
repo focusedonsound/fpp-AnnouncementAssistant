@@ -80,6 +80,17 @@ if (!file_exists($script)) {
     jsonOut("ERROR", "Missing script: $script");
 }
 
+// RESET COUNTS: zero out the play counts file
+if ($action === "reset_counts") {
+    $countFile = "/home/fpp/media/logs/aa_play_counts.json";
+    if (@file_put_contents($countFile, "{}") === false) {
+        logLine($logFile, "ERROR: could not reset play counts file");
+        jsonOut("ERROR", "Could not reset play counts.");
+    }
+    logLine($logFile, "Play counts reset.");
+    jsonOut("OK", "Play counts reset.");
+}
+
 // STOP: stop any currently playing announcement(s)
 if ($action === "stop") {
     // Optional slot passed from UI; not required for stop-all.
