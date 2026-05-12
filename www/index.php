@@ -267,6 +267,48 @@ $audioFiles = listAudio("/home/fpp/media/music");
       <i class="fas fa-fw fa-save"></i> Save Settings
     </button>
   </div>
+
+  <!-- ── Footer: Non-commercial notice + telemetry opt-in ────────────── -->
+  <div class="fppTableWrapper fppTableWrapperAsTable mb-3">
+    <div class="fppTableContents">
+      <table class="fppSelectableRowTable" style="width:100%;">
+        <thead>
+          <tr>
+            <th style="padding:8px;">
+              <i class="fas fa-fw fa-heart"></i> About This Plugin
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding:12px 16px;">
+              <p class="mb-3">
+                SLED and Announcement Assistant are free for personal use.
+                If you&rsquo;re using either plugin in a paid display, sponsored event, or
+                professional environment &mdash; please consider
+                <a href="https://paypal.me/NScilingo" target="_blank" rel="noopener noreferrer">
+                  making a donation</a>.
+                It helps keep development going.
+              </p>
+              <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" name="telemetry_opt_in"
+                       id="telemetryOptIn" value="1"
+                       <?php echo !empty($cfg['telemetry']['opt_in']) ? 'checked' : ''; ?> />
+                <label class="form-check-label small" for="telemetryOptIn" style="cursor:pointer;">
+                  Help improve this plugin by sharing anonymous usage stats
+                  <span style="cursor:help; color:var(--bs-info);"
+                        title="Sends once per day: plugin version, FPP version, Pi model, and how many announcement buttons are configured. Audio filenames, file sizes, and playback results are included to help diagnose playback issues. No personal data is collected and no IP addresses are stored.">
+                    <i class="fas fa-circle-question fa-xs"></i>
+                  </span>
+                </label>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </form>
 
 <hr/>

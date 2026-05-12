@@ -131,4 +131,18 @@ fi
 date +%s > "$COOLDOWN_FILE"
 
 log "DISPATCH: duck=$DUCK file=$FILE"
-exec "$DUCK_SCRIPT" "$FILE" "$DUCK"
+"$DUCK_SCRIPT" "$FILE" "$DUCK"
+RC=$?
+log "DONE rc=$RC"
+
+# ── Telemetry (non-blocking, fire-and-forget) ──────────────────────────────
+# Both calls run in background so they never delay or block playback.
+TELEMETRY_PY="${SCRIPT_DIR}/aa_telemetry.py"
+if command -v python3 >/dev/null 2>&1 && [[ -f "$TELEMETRY_PY" ]]; then
+    PLAY_RESULT="ok"
+    [[ $RC -ne 0 ]] && PLAY_RESULT="error"
+    python3 "$TELEMETRY_PY" --event "$FILE" "$PLAY_RESULT" "pulseaudio" &>/dev/null &
+    python3 "$TELEMETRY_PY" --ping &>/dev/null &
+fi
+
+exit $RC

@@ -13,6 +13,13 @@ function respond($ok, $msg, $extra = []) {
   exit;
 }
 
+function generateUUID() {
+  $data = random_bytes(16);
+  $data[6] = chr(ord($data[6]) & 0x0f | 0x40);
+  $data[8] = chr(ord($data[8]) & 0x3f | 0x80);
+  return vsprintf('%s%s-%s-%s-%s-%s%s%s', str_split(bin2hex($data), 4));
+}
+
 function parseDuck($v, $fallback = "25%") {
   $v = trim((string)$v);
   if ($v === "") $v = $fallback;
@@ -78,6 +85,11 @@ for ($i=0; $i<6; $i++) {
 }
 
 $cfg["buttons"] = $buttons;
+
+// ── Telemetry ─────────────────────────────────────────────────────────────
+$existingId = $cfg["telemetry"]["install_id"] ?? "";
+$cfg["telemetry"]["install_id"] = ($existingId !== "") ? $existingId : generateUUID();
+$cfg["telemetry"]["opt_in"]     = isset($_POST["telemetry_opt_in"]) && $_POST["telemetry_opt_in"] === "1";
 
 // Atomic write
 $tmp = $configFile . ".tmp";
