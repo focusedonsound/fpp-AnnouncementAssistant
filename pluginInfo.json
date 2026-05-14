@@ -1,7 +1,7 @@
 {
   "repoName": "fpp-AnnouncementAssistant",
   "name": "Announcement Assistant (Audio Ducking)",
-  "author": "Nick Scilingo Nick S(NJ)",
+  "author": "Nick Scilingo (FocusedOnSound)",
   "description": "Play pre-canned announcements over the currently playing show audio using PulseAudio mixing + automatic ducking. Includes 6 configurable slots, live trigger buttons, and FPP Command integration.",
   "homeURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant",
   "srcURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant.git",
