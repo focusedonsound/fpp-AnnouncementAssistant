@@ -68,18 +68,56 @@ $playCounts = loadPlayCounts();
 $today = date('Y-m-d');
 ?>
 
-<div class="d-flex justify-content-between align-items-center mb-2">
+<style>
+/* ── AA plugin — explicit colours for FPP 9.x / 10.x compatibility ─────────
+   FPP 9.x Bootstrap 4 dark theme makes btn-outline-light render as
+   white-on-white. All colours here are hardcoded so they look the same
+   on every FPP version.
+   ─────────────────────────────────────────────────────────────────────────── */
+.aa-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: .3rem;
+  padding: .35rem .8rem;
+  font-size: .875rem;
+  font-weight: 500;
+  line-height: 1.5;
+  text-align: center;
+  white-space: nowrap;
+  cursor: pointer;
+  border: 1px solid #3a7fc1;
+  border-radius: .3rem;
+  text-decoration: none !important;
+  background-color: #1a6eb5;
+  color: #fff !important;
+  transition: background-color .15s ease-in-out, border-color .15s;
+  vertical-align: middle;
+}
+.aa-btn:hover, .aa-btn:focus {
+  background-color: #155a94;
+  border-color: #0e4370;
+  color: #fff !important;
+  text-decoration: none !important;
+}
+@media (max-width: 640px) {
+  .aa-page-header { flex-wrap: wrap !important; row-gap: .5rem; }
+  .aa-page-header > *:first-child { flex: 1 1 100%; }
+  .aa-donate-row { flex-wrap: wrap; width: 100%; }
+}
+</style>
+
+<div class="d-flex justify-content-between align-items-center mb-2 aa-page-header">
   <h2 class="mb-0"><i class="fas fa-fw fa-bullhorn"></i> Announcement Assistant</h2>
-  <div class="d-flex gap-2">
+  <div class="d-flex align-items-center gap-2 aa-donate-row">
     <a href="https://buymeacoffee.com/jm9pwtesct"
        target="_blank" rel="noopener noreferrer"
-       class="buttons btn-outline-light">
+       class="aa-btn">
       <i class="fas fa-fw fa-mug-hot"></i> Buy Me a Coffee
     </a>
     <a href="https://paypal.me/NScilingo"
        target="_blank" rel="noopener noreferrer"
-       class="buttons btn-outline-light">
-      <i class="fab fa-fw fa-paypal"></i> Donate via PayPal
+       class="aa-btn">
+      <i class="fas fa-fw fa-hand-holding-dollar"></i> Donate via PayPal
     </a>
   </div>
 </div>
