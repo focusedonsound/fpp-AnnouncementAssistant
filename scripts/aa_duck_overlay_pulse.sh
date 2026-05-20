@@ -58,9 +58,13 @@ get_sink_inputs_for_sink() {
 }
 
 get_sink_input_vol_pct() {
-    local id="$1"
-    pactl get-sink-input-volume "$id" 2>/dev/null \
-        | sed -n 's/.*\/ \([0-9]\+\)% .*/\1/p' | head -n 1
+    # Returns the volume percentage (integer) of a sink-input, or "" on failure.
+    # Uses || true throughout so a stale/vanished sink-input ID never aborts the
+    # script under set -Eeuo pipefail.
+    local id="$1" raw pct
+    raw=$(pactl get-sink-input-volume "$id" 2>/dev/null || true)
+    pct=$(printf '%s\n' "$raw" | sed -n 's/.*\/ \([0-9]\+\)% .*/\1/p' | head -n 1 || true)
+    printf '%s' "${pct:-}"
 }
 
 # Read a top-level numeric field from the config JSON, with a fallback default.
@@ -208,7 +212,9 @@ log "START: duck=$DUCK fade_down=${FADE_DOWN}s fade_up=${FADE_UP}s sink=$SINK pr
 if [[ -n "$PRE_IDS" ]]; then
     for id in $PRE_IDS; do
         [[ "$id" =~ ^[0-9]+$ ]] || { log "WARN: skipping non-numeric id='$id'"; continue; }
-        ORIG["$id"]="$(get_sink_input_vol_pct "$id")"
+        # Assign with || true so a non-zero exit from the function (stale/vanished
+        # sink-input) never triggers set -e and aborts the script before playback.
+        ORIG["$id"]="$(get_sink_input_vol_pct "$id" || true)"
         log "Captured: id=$id vol=${ORIG[$id]:-unknown}"
     done
 fi
