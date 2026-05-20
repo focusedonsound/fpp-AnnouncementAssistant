@@ -222,11 +222,11 @@ $today = date('Y-m-d');
             </td>
 
             <td>
-              <button type="button" class="buttons btn-outline-light btn-sm me-1"
+              <button type="button" class="btn btn-sm btn-secondary me-1"
                       onclick="aaTrigger(<?php echo $i; ?>)">
                 <i class="fas fa-fw fa-play"></i> Play
               </button>
-              <button type="button" class="buttons btn-outline-light btn-sm"
+              <button type="button" class="btn btn-sm btn-outline-secondary"
                       onclick="aaStop()">
                 <i class="fas fa-fw fa-stop"></i> Stop
               </button>
@@ -340,10 +340,10 @@ $today = date('Y-m-d');
   </div>
 
   <div class="mb-4 d-flex gap-2 align-items-center">
-    <button type="button" class="buttons btn-outline-light" onclick="aaSave()">
+    <button type="button" class="btn btn-primary" onclick="aaSave()">
       <i class="fas fa-fw fa-save"></i> Save Settings
     </button>
-    <button type="button" class="buttons btn-outline-secondary btn-sm"
+    <button type="button" class="btn btn-sm btn-outline-secondary"
             onclick="aaResetCounts()"
             title="Reset all play counts back to zero. This cannot be undone.">
       <i class="fas fa-fw fa-rotate-left"></i> Reset Play Counts
@@ -400,7 +400,7 @@ $today = date('Y-m-d');
 <div class="d-flex flex-wrap gap-2 mb-3">
   <?php for ($i=0; $i<6; $i++): ?>
     <button type="button"
-            class="buttons btn-outline-light"
+            class="aa-btn"
             style="min-width:180px; min-height:48px;"
             id="liveBtn<?php echo $i; ?>"
             onclick="aaTrigger(<?php echo $i; ?>)">
@@ -410,7 +410,7 @@ $today = date('Y-m-d');
   <?php endfor; ?>
 
   <button type="button"
-          class="buttons btn-outline-light"
+          class="btn btn-outline-secondary"
           style="min-width:180px; min-height:48px;"
           onclick="aaStop()">
     <i class="fas fa-fw fa-stop"></i> Stop Current
