@@ -39,8 +39,19 @@ get_default_sink() {
 }
 
 get_sink_inputs_for_sink() {
-    local sink="$1"
-    pactl list short sink-inputs 2>/dev/null | awk -v s="$sink" '$2==s {print $1}'
+    local sink_name="$1"
+    # pactl list short sink-inputs uses the numeric sink INDEX in column $2,
+    # but get_default_sink() returns the sink NAME.  Resolve name → index first.
+    local sink_idx
+    sink_idx=$(pactl list short sinks 2>/dev/null \
+               | awk -v n="$sink_name" '$2==n {print $1; exit}')
+    if [[ -n "$sink_idx" ]]; then
+        pactl list short sink-inputs 2>/dev/null | awk -v s="$sink_idx" '$2==s {print $1}'
+    else
+        # Fallback: index lookup failed — duck all current sink-inputs
+        log "WARN: could not resolve sink index for '$sink_name'; ducking all sink-inputs"
+        pactl list short sink-inputs 2>/dev/null | awk '{print $1}'
+    fi
 }
 
 get_sink_input_vol_pct() {
