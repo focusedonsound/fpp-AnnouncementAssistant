@@ -98,61 +98,24 @@ play_announcement() {
 # Smooth volume fade across multiple sink inputs.
 # fade_inputs <steps> <step_sleep_s> [id:from_pct:to_pct ...]
 #   Each spec defines the interpolation range for one sink input.
-#
-# Volume levels for ALL specs are pre-computed in a single python3 call before
-# the loop starts — this avoids spawning one python3 process per step, which
-# previously caused PulseAudio buffer jitter (audible as a brief pitch/speed
-# artifact at fade start and end).
 fade_inputs() {
     local steps="$1" step_sleep="$2"
     shift 2
+    # Guard: nothing to fade
     [[ $# -eq 0 ]] && return 0
-    # Steps=0 means instant snap — caller handles that separately.
-    (( steps <= 0 )) && return 0
 
-    # Build a python3 snippet that emits one line per spec per step:
-    # "step_index id vol" — all pre-computed, single subprocess.
-    local py_input=""
-    local spec id rest from to
-    for spec in "$@"; do
-        id="${spec%%:*}"
-        rest="${spec#*:}"
-        from="${rest%%:*}"
-        to="${rest##*:}"
-        py_input+="specs.append(('${id}', ${from}, ${to}))"$'\n'
+    local i spec id rest from to vol
+    for (( i=1; i<=steps; i++ )); do
+        for spec in "$@"; do
+            id="${spec%%:*}"
+            rest="${spec#*:}"
+            from="${rest%%:*}"
+            to="${rest##*:}"
+            vol=$(python3 -c "print(max(0,min(100,round($from+($to-$from)*$i/$steps))))")
+            pactl set-sink-input-volume "$id" "${vol}%" >>"$LOG_FILE" 2>&1 || true
+        done
+        sleep "$step_sleep"
     done
-
-    local schedule
-    schedule=$(python3 - "$steps" <<PYEOF 2>/dev/null || true
-import sys
-steps = int(sys.argv[1])
-specs = []
-${py_input}
-for i in range(1, steps + 1):
-    for (sid, frm, to) in specs:
-        vol = max(0, min(100, round(frm + (to - frm) * i / steps)))
-        print(sid, vol)
-PYEOF
-)
-
-    if [[ -z "$schedule" ]]; then
-        log "WARN: fade_inputs: pre-compute returned no schedule"
-        return 0
-    fi
-
-    local prev_step=0 cur_step sid vol
-    while IFS=' ' read -r sid vol; do
-        # Each line is one step for one sink-input; sleep between steps
-        # by tracking when the step index advances.
-        cur_step=$(( cur_step + 1 ))
-        pactl set-sink-input-volume "$sid" "${vol}%" >>"$LOG_FILE" 2>&1 || true
-        # Sleep after all sink-inputs in a step have been updated
-        # We use a sub-shell counter trick: python emits specs in step order,
-        # so sleep after every Nth line where N = number of specs.
-        if (( cur_step % $# == 0 )); then
-            sleep "$step_sleep"
-        fi
-    done <<< "$schedule"
 }
 
 # ── Cleanup trap — restores volumes on exit or signal ──────────────────────
@@ -235,16 +198,12 @@ if [[ -z "$SINK" ]]; then
     exit 1
 fi
 
-# Read fade durations from config (seconds, float).
-# Setting fade_down or fade_up to 0 disables that fade (instant snap).
+# Read fade durations from config (seconds, float)
 FADE_DOWN="$(read_config_float fade_down 0.5)"
 FADE_UP="$(read_config_float fade_up 1.0)"
-FADE_STEPS=10
-# If duration is 0, use 0 steps so fade_inputs skips the loop entirely.
-FADE_DOWN_STEPS=$(python3 -c "print($FADE_STEPS if float('$FADE_DOWN') > 0 else 0)" || echo "$FADE_STEPS")
-FADE_UP_STEPS=$(python3 -c "  print($FADE_STEPS if float('$FADE_UP')   > 0 else 0)" || echo "$FADE_STEPS")
-FADE_DOWN_SLEEP=$(python3 -c "print(round(float('$FADE_DOWN') / $FADE_STEPS, 4) if float('$FADE_DOWN') > 0 else 0)" || echo "0.05")
-FADE_UP_SLEEP=$(python3 -c "  print(round(float('$FADE_UP')   / $FADE_STEPS, 4) if float('$FADE_UP')   > 0 else 0)" || echo "0.1")
+FADE_STEPS=20
+FADE_DOWN_SLEEP=$(python3 -c "print(round($FADE_DOWN/$FADE_STEPS,4))")
+FADE_UP_SLEEP=$(python3 -c "print(round($FADE_UP/$FADE_STEPS,4))")
 
 # Capture sink inputs present before the announcement
 PRE_IDS="$(get_sink_inputs_for_sink "$SINK" || true)"
@@ -270,8 +229,8 @@ if [[ ${#ORIG[@]} -gt 0 ]]; then
         from="${ORIG[$id]:-100}"
         SPECS+=("${id}:${from}:${DUCK_NUM}")
     done
-    log "FADE DOWN: ${FADE_DOWN}s (${FADE_DOWN_STEPS} steps)"
-    fade_inputs "$FADE_DOWN_STEPS" "$FADE_DOWN_SLEEP" "${SPECS[@]+"${SPECS[@]}"}"
+    log "FADE DOWN: ${FADE_DOWN}s (${FADE_STEPS} steps)"
+    fade_inputs "$FADE_STEPS" "$FADE_DOWN_SLEEP" "${SPECS[@]+"${SPECS[@]}"}"
     log "FADE DOWN: complete -> duck=$DUCK"
 else
     log "INFO: No sink-inputs to duck"
@@ -291,8 +250,8 @@ if [[ ${#ORIG[@]} -gt 0 ]]; then
         to="${ORIG[$id]:-100}"
         SPECS+=("${id}:${DUCK_NUM}:${to}")
     done
-    log "FADE UP: ${FADE_UP}s (${FADE_UP_STEPS} steps)"
-    fade_inputs "$FADE_UP_STEPS" "$FADE_UP_SLEEP" "${SPECS[@]+"${SPECS[@]}"}"
+    log "FADE UP: ${FADE_UP}s (${FADE_STEPS} steps)"
+    fade_inputs "$FADE_STEPS" "$FADE_UP_SLEEP" "${SPECS[@]+"${SPECS[@]}"}"
     log "FADE UP: complete -> restored"
 fi
 
