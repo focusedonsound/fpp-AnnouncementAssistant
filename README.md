@@ -2,7 +2,7 @@
 
 ### *FPP Plugin: Announcement Assistant (Audio Ducking)*
 
-[![FPP Compatible](https://img.shields.io/badge/FPP-8.x%20%7C%209.x%20%7C%2010.x%2B-red?style=for-the-badge&logo=raspberry-pi)](https://github.com/FalconChristmasLighting/fpp)
+[![FPP Compatible](https://img.shields.io/badge/FPP-9.x%20%7C%2010.x%2B-red?style=for-the-badge&logo=raspberry-pi)](https://github.com/FalconChristmasLighting/fpp)
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi-c51a4a?style=for-the-badge&logo=raspberry-pi)](https://www.raspberrypi.com/)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Audio](https://img.shields.io/badge/Audio-PulseAudio-orange?style=for-the-badge)](https://www.freedesktop.org/wiki/Software/PulseAudio/)
@@ -164,7 +164,7 @@ This is where AA gets *fun*. The trigger button in the FPP UI is just the beginn
 ## 📋 Requirements
 
 ### Software
-- **Falcon Player (FPP)** 8.0, 9.x, or 10.x+
+- **Falcon Player (FPP)** 9.x or 10.x+
 - **PulseAudio** (installed automatically)
 - **pulseaudio-utils** (installed automatically)
 - **libasound2-plugins** (installed automatically)
