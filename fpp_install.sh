@@ -21,7 +21,7 @@ log() { echo "[$PLUGIN_ID] $*"; }
 
 usage() {
   cat <<EOF
-Usage: sudo ./fpp_install.sh [options] [FPPDIR=/opt/fpp SRCDIR=... PLUGINDIR=...]
+Usage: ./fpp_install.sh [options] [FPPDIR=/opt/fpp SRCDIR=... PLUGINDIR=...]
 
 Options:
   --no-48k        Do NOT modify /etc/pulse/daemon.conf sample rate (default is to set 48k)
@@ -69,7 +69,6 @@ parse_args() {
 need_root() {
   if [[ "${EUID}" -ne 0 ]]; then
     log "ERROR: fpp_install.sh must be run as root."
-    log "Tip: sudo ./fpp_install.sh"
     exit 1
   fi
 }
@@ -204,8 +203,9 @@ Type=simple
 ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0755 /run/pulse
 ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0700 /run/pulse/.config
 ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0700 /run/pulse/.config/pulse
+ExecStartPre=/bin/sh -c 'touch /home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log && chown pulse:pulse /home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log'
 
-ExecStart=/usr/bin/pulseaudio --system -nF /etc/pulse/system.pa --disallow-exit --exit-idle-time=-1 --log-target=journal
+ExecStart=/usr/bin/pulseaudio --system -nF /etc/pulse/system.pa --disallow-exit --exit-idle-time=-1 --log-target=file:/home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log
 
 # Ensure local clients (fppd + plugin scripts) can connect to the socket
 ExecStartPost=/bin/sh -c 'chmod 0666 /run/pulse/native || true'

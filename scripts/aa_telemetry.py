@@ -35,11 +35,21 @@ def _pi_model():
     return ""
 
 def _fpp_ver():
+    # Go through FPP's settings API rather than parsing the settings file
+    # directly -- the file's format is not a stable contract across releases.
     try:
-        for line in open("/home/fpp/media/settings"):
-            if line.strip().startswith("fppVersion"): return line.split("=",1)[1].strip()
-    except: pass
-    return ""
+        req = urllib.request.Request("http://localhost/api/settings/fppVersion")
+        with urllib.request.urlopen(req, timeout=5) as r:
+            body = r.read().decode().strip()
+        try:
+            data = json.loads(body)
+            if isinstance(data, dict):
+                return str(data.get("value", data.get("fppVersion", ""))).strip()
+            return str(data).strip()
+        except json.JSONDecodeError:
+            return body
+    except Exception:
+        return ""
 
 def _send(payload):
     try:
