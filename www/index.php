@@ -107,7 +107,7 @@ $today = date('Y-m-d');
 </style>
 
 <div class="d-flex justify-content-between align-items-center mb-2 aa-page-header">
-  <h2 class="mb-0"><i class="fas fa-fw fa-bullhorn"></i> Announcement Assistant</h2>
+  <h2 class="mb-0"><i class="fas fa-fw fa-bullhorn"></i> AA - Announcement Assistant</h2>
   <div class="d-flex align-items-center gap-2 aa-donate-row">
     <a href="https://buymeacoffee.com/jm9pwtesct"
        target="_blank" rel="noopener noreferrer"

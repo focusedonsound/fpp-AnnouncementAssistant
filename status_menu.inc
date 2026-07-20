@@ -7,4 +7,4 @@
 //
 ?>
 
-<li><a href="plugin.php?plugin=fpp-AnnouncementAssistant&page=www/index.php">Announcement Assistant</a></li>
+<li><a href="plugin.php?plugin=fpp-AnnouncementAssistant&page=www/index.php">AA - Announcement Assistant</a></li>
