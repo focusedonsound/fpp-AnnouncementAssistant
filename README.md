@@ -4,7 +4,7 @@
 
 [![FPP Compatible](https://img.shields.io/badge/FPP-9.x%20%7C%2010.x%2B-red?style=for-the-badge&logo=raspberry-pi)](https://github.com/FalconChristmasLighting/fpp)
 [![Platform](https://img.shields.io/badge/Platform-Raspberry%20Pi-c51a4a?style=for-the-badge&logo=raspberry-pi)](https://www.raspberrypi.com/)
-[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
+[![License](https://img.shields.io/badge/License-Noncommercial-green?style=for-the-badge)](LICENSE)
 [![Audio](https://img.shields.io/badge/Audio-PulseAudio-orange?style=for-the-badge)](https://www.freedesktop.org/wiki/Software/PulseAudio/)
 [![GitHub](https://img.shields.io/badge/GitHub-focusedonsound-181717?style=for-the-badge&logo=github)](https://github.com/focusedonsound/fpp-AnnouncementAssistant)
 
@@ -758,9 +758,12 @@ Bug reports: [github.com/focusedonsound/fpp-AnnouncementAssistant/issues](https:
 
 ## 📜 License
 
-MIT License — see [LICENSE](LICENSE) for details.
+Free for personal, hobbyist, and noncommercial use under the
+[PolyForm Noncommercial License 1.0.0](LICENSE).
 
-Free for personal use. If you're building something commercial with this, please reach out.
+Using this in a commercial or paid-event display? A separate commercial
+license is required — contact license.request@christmasinboontontwp.com
+to arrange one.
 
 ---
 

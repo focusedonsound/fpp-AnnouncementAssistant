@@ -360,9 +360,11 @@ $today = date('Y-m-d');
           <tr>
             <td style="padding:12px 16px;">
               <p class="mb-0">
-                SLED and Announcement Assistant are free and open source. See the
-                <a href="https://github.com/focusedonsound/fpp-AnnouncementAssistant" target="_blank" rel="noopener noreferrer">
-                  GitHub repo</a> for documentation, updates, and ways to support development.
+                Announcement Assistant is free for personal and hobbyist use. Commercial
+                or paid-event use requires a separate license — contact
+                <a href="mailto:license.request@christmasinboontontwp.com">license.request@christmasinboontontwp.com</a>.
+                See the <a href="https://github.com/focusedonsound/fpp-AnnouncementAssistant" target="_blank" rel="noopener noreferrer">
+                  GitHub repo</a> for documentation and updates.
               </p>
             </td>
           </tr>
