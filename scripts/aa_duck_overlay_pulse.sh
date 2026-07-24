@@ -9,7 +9,7 @@ set -Eeuo pipefail
 
 LOG_FILE="/home/fpp/media/logs/AnnouncementAssistant.log"
 CONFIG_FILE="/home/fpp/media/config/announcementassistant.json"
-STATE_FILE="/home/fpp/media/logs/aa_playing.lock"
+STATE_FILE="/home/fpp/media/plugins/fpp-AnnouncementAssistant/state/aa_playing.lock"
 PULSE_SOCKET="/run/pulse/native"
 export PULSE_SERVER="unix:${PULSE_SOCKET}"
 

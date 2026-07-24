@@ -6,6 +6,7 @@
   "homeURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant",
   "srcURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant.git",
   "bugURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant/issues",
+  "iconURL": "https://raw.githubusercontent.com/focusedonsound/fpp-AnnouncementAssistant/main/icon.png",
   "allowUpdates": 1,
   "versions": [
     {

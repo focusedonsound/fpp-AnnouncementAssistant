@@ -86,11 +86,6 @@ for ($i=0; $i<6; $i++) {
 
 $cfg["buttons"] = $buttons;
 
-// ── Telemetry ─────────────────────────────────────────────────────────────
-$existingId = $cfg["telemetry"]["install_id"] ?? "";
-$cfg["telemetry"]["install_id"] = ($existingId !== "") ? $existingId : generateUUID();
-$cfg["telemetry"]["opt_in"]     = isset($_POST["telemetry_opt_in"]) && $_POST["telemetry_opt_in"] === "1";
-
 // Atomic write
 $tmp = $configFile . ".tmp";
 $data = json_encode($cfg, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES) . "\n";

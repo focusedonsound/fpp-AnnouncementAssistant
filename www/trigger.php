@@ -82,7 +82,7 @@ if (!file_exists($script)) {
 
 // RESET COUNTS: zero out the play counts file
 if ($action === "reset_counts") {
-    $countFile = "/home/fpp/media/logs/aa_play_counts.json";
+    $countFile = "/home/fpp/media/plugins/fpp-AnnouncementAssistant/state/aa_play_counts.json";
     if (@file_put_contents($countFile, "{}") === false) {
         logLine($logFile, "ERROR: could not reset play counts file");
         jsonOut("ERROR", "Could not reset play counts.");

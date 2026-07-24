@@ -266,6 +266,7 @@ EOF
 
 seed_default_config_if_missing() {
   ensure_dir "$CFG_DIR"
+  ensure_dir "/home/fpp/media/plugins/fpp-AnnouncementAssistant/state"
 
   if [[ ! -f "$CFG_FILE" ]]; then
     cat > "$CFG_FILE" <<'EOF'

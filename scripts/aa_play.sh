@@ -3,8 +3,10 @@ set -Eeuo pipefail
 
 LOG_FILE="/home/fpp/media/logs/AnnouncementAssistant.log"
 CONFIG_FILE="/home/fpp/media/config/announcementassistant.json"
-STATE_FILE="/home/fpp/media/logs/aa_playing.lock"
-COOLDOWN_FILE="/home/fpp/media/logs/aa_cooldown.ts"
+STATE_DIR="/home/fpp/media/plugins/fpp-AnnouncementAssistant/state"
+STATE_FILE="${STATE_DIR}/aa_playing.lock"
+COOLDOWN_FILE="${STATE_DIR}/aa_cooldown.ts"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
 PULSE_SOCKET="/run/pulse/native"
 export PULSE_SERVER="unix:${PULSE_SOCKET}"
 
@@ -137,7 +139,7 @@ log "DONE rc=$RC"
 
 # ── Play count tracking ────────────────────────────────────────────────────
 # Increment today + lifetime count for this slot on successful play.
-COUNT_FILE="/home/fpp/media/logs/aa_play_counts.json"
+COUNT_FILE="/home/fpp/media/plugins/fpp-AnnouncementAssistant/state/aa_play_counts.json"
 if [[ $RC -eq 0 && -n "$SLOT" ]]; then
     python3 - "$SLOT" "$COUNT_FILE" << 'PYEOF' 2>/dev/null || true
 import json, sys
@@ -156,16 +158,6 @@ d[slot]["today"] += 1
 json.dump(d, open(path, "w"))
 PYEOF
     log "COUNT: incremented slot=$SLOT"
-fi
-
-# ── Telemetry (non-blocking, fire-and-forget) ──────────────────────────────
-# Both calls run in background so they never delay or block playback.
-TELEMETRY_PY="${SCRIPT_DIR}/aa_telemetry.py"
-if command -v python3 >/dev/null 2>&1 && [[ -f "$TELEMETRY_PY" ]]; then
-    PLAY_RESULT="ok"
-    [[ $RC -ne 0 ]] && PLAY_RESULT="error"
-    python3 "$TELEMETRY_PY" --event "$FILE" "$PLAY_RESULT" "pulseaudio" &>/dev/null &
-    python3 "$TELEMETRY_PY" --ping &>/dev/null &
 fi
 
 exit $RC

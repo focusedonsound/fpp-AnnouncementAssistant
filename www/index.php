@@ -59,7 +59,7 @@ $audioFiles = listAudio("/home/fpp/media/music");
 
 // ── Play counts ───────────────────────────────────────────────────────────
 function loadPlayCounts() {
-  $path = "/home/fpp/media/logs/aa_play_counts.json";
+  $path = "/home/fpp/media/plugins/fpp-AnnouncementAssistant/state/aa_play_counts.json";
   if (!file_exists($path)) return [];
   $j = json_decode(@file_get_contents($path), true);
   return is_array($j) ? $j : [];
@@ -109,15 +109,10 @@ $today = date('Y-m-d');
 <div class="d-flex justify-content-between align-items-center mb-2 aa-page-header">
   <h2 class="mb-0"><i class="fas fa-fw fa-bullhorn"></i> AA - Announcement Assistant</h2>
   <div class="d-flex align-items-center gap-2 aa-donate-row">
-    <a href="https://buymeacoffee.com/jm9pwtesct"
+    <a href="https://github.com/focusedonsound/fpp-AnnouncementAssistant"
        target="_blank" rel="noopener noreferrer"
        class="aa-btn">
-      <i class="fas fa-fw fa-mug-hot"></i> Buy Me a Coffee
-    </a>
-    <a href="https://paypal.me/NScilingo"
-       target="_blank" rel="noopener noreferrer"
-       class="aa-btn">
-      <i class="fas fa-fw fa-hand-holding-dollar"></i> Donate via PayPal
+      <i class="fas fa-fw fa-code-branch"></i> GitHub Repo
     </a>
   </div>
 </div>
@@ -350,7 +345,7 @@ $today = date('Y-m-d');
     </button>
   </div>
 
-  <!-- ── Footer: Non-commercial notice + telemetry opt-in ────────────── -->
+  <!-- ── Footer: About this plugin ───────────────────────────────────── -->
   <div class="fppTableWrapper fppTableWrapperAsTable mb-3">
     <div class="fppTableContents">
       <table class="fppSelectableRowTable" style="width:100%;">
@@ -364,26 +359,11 @@ $today = date('Y-m-d');
         <tbody>
           <tr>
             <td style="padding:12px 16px;">
-              <p class="mb-3">
-                SLED and Announcement Assistant are free for personal use.
-                If you&rsquo;re using either plugin in a paid display, sponsored event, or
-                professional environment &mdash; please consider
-                <a href="https://paypal.me/NScilingo" target="_blank" rel="noopener noreferrer">
-                  making a donation</a>.
-                It helps keep development going.
+              <p class="mb-0">
+                SLED and Announcement Assistant are free and open source. See the
+                <a href="https://github.com/focusedonsound/fpp-AnnouncementAssistant" target="_blank" rel="noopener noreferrer">
+                  GitHub repo</a> for documentation, updates, and ways to support development.
               </p>
-              <div class="form-check form-switch">
-                <input class="form-check-input" type="checkbox" name="telemetry_opt_in"
-                       id="telemetryOptIn" value="1"
-                       <?php echo !empty($cfg['telemetry']['opt_in']) ? 'checked' : ''; ?> />
-                <label class="form-check-label small" for="telemetryOptIn" style="cursor:pointer;">
-                  Help improve this plugin by sharing anonymous usage stats
-                  <span style="cursor:help; color:var(--bs-info);"
-                        title="Sends once per day: plugin version, FPP version, Pi model, and how many announcement buttons are configured. Audio filenames, file sizes, and playback results are included to help diagnose playback issues. No personal data is collected and no IP addresses are stored.">
-                    <i class="fas fa-circle-question fa-xs"></i>
-                  </span>
-                </label>
-              </div>
             </td>
           </tr>
         </tbody>
