@@ -39,6 +39,24 @@
 
 ---
 
+## 📜 License
+
+Free for personal, hobbyist, and noncommercial use under the
+[PolyForm Noncommercial License 1.0.0](LICENSE).
+
+Using this in a commercial or paid-event display? A separate commercial
+license is required — contact license.request@christmasinboontontwp.com
+to arrange one.
+
+---
+
+## 💛 Support the Project
+
+If Announcement Assistant has made your show more magical, this repo has a
+Sponsor button in the sidebar if you'd like to support development.
+
+---
+
 ## 🎤 What Is Announcement Assistant?
 
 **Announcement Assistant (AA)** is a Falcon Player plugin that gives your Christmas light show a *voice* — without ever stopping the show.
@@ -736,13 +754,6 @@ A: Yes — use FPP's REST API. HA sends an HTTP GET to `http://<fpp-ip>/api/comm
 
 ---
 
-## 💛 Support the Project
-
-If Announcement Assistant has made your show more magical, this repo has a
-Sponsor button in the sidebar if you'd like to support development.
-
----
-
 ## 🤝 Contributing
 
 Found a bug? Have a feature idea? PRs and issues are welcome!
@@ -753,17 +764,6 @@ Found a bug? Have a feature idea? PRs and issues are welcome!
 4. Open a pull request against `main`
 
 Bug reports: [github.com/focusedonsound/fpp-AnnouncementAssistant/issues](https://github.com/focusedonsound/fpp-AnnouncementAssistant/issues)
-
----
-
-## 📜 License
-
-Free for personal, hobbyist, and noncommercial use under the
-[PolyForm Noncommercial License 1.0.0](LICENSE).
-
-Using this in a commercial or paid-event display? A separate commercial
-license is required — contact license.request@christmasinboontontwp.com
-to arrange one.
 
 ---
 
