@@ -77,6 +77,12 @@ main() {
   restore_pulse_daemon_conf
   remove_fpp_pulse_pin
 
+  # Signal FPP to restart fppd
+  set +u
+  . "${FPPDIR:-/opt/fpp}/scripts/common" 2>/dev/null || true
+  set -u
+  setSetting restartFlag 1 2>/dev/null || true
+
   log "Done. Announcement config and audio files under /home/fpp/media were left in place."
 }
 

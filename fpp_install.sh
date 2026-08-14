@@ -346,6 +346,12 @@ main() {
   fix_plugin_script_perms
   post_install_notes
 
+  # Signal FPP to restart fppd so newly registered commands hot-load
+  set +u
+  . "${FPPDIR:-/opt/fpp}/scripts/common" 2>/dev/null || true
+  set -u
+  setSetting restartFlag 1 2>/dev/null || true
+
   log "Done."
 }
 
