@@ -7,14 +7,32 @@ STATE_DIR="/home/fpp/media/plugins/fpp-AnnouncementAssistant/state"
 STATE_FILE="${STATE_DIR}/aa_playing.lock"
 COOLDOWN_FILE="${STATE_DIR}/aa_cooldown.ts"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
-PULSE_SOCKET="/run/pulse/native"
-export PULSE_SERVER="unix:${PULSE_SOCKET}"
 
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log(){ echo "[$(ts)] [aa_play] $*" >> "$LOG_FILE"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-DUCK_SCRIPT="${SCRIPT_DIR}/aa_duck_overlay_pulse.sh"
+
+# ── Backend selection ───────────────────────────────────────────────────
+# Probe fppd's Command API rather than branching on FPP version: whether
+# Stream Slots (GStreamer/PipeWire) are actually active is what matters, not
+# which major version is installed (see PLUGIN_GUIDELINES.md — a plugin can
+# be asked to differentiate real backend behavior, not just declare a
+# version range). Where available, duck via the documented Command API
+# (no pactl, no sudo — see aa_duck_overlay_pipewire.sh). Where not, fall
+# back to the existing PulseAudio sink-input approach unchanged, which is
+# what's tested and working on pre-PipeWire FPP installs.
+pipewire_slots_available() {
+    local code
+    code="$(curl -s -m 3 -o /dev/null -w '%{http_code}' http://localhost/api/command/Media%20Slot%20Status 2>/dev/null || echo 000)"
+    [[ "$code" == "200" ]]
+}
+
+if pipewire_slots_available; then
+    DUCK_SCRIPT="${SCRIPT_DIR}/aa_duck_overlay_pipewire.sh"
+else
+    DUCK_SCRIPT="${SCRIPT_DIR}/aa_duck_overlay_pulse.sh"
+fi
 
 # ── Config helpers ────────────────────────────────────────────────────────
 
@@ -67,9 +85,9 @@ DUCK="${2:-25%}"
 SLOT="${3:-}"   # Optional: slot index (0-5), used for per-slot interrupt check
 
 log "----"
-log "START file=${FILE:-<none>} duck=$DUCK slot=${SLOT:-none}"
+log "START file=${FILE:-<none>} duck=$DUCK slot=${SLOT:-none} backend=$(basename "$DUCK_SCRIPT")"
 
-if [[ -z "$FILE" ]];     then log "ERROR: Missing file arg";                            exit 2; fi
+if [[ -z "$FILE" ]];    then log "ERROR: Missing file arg";                            exit 2; fi
 if [[ ! -f "$FILE" ]];   then log "ERROR: File not found: $FILE";                       exit 2; fi
 if [[ ! -x "$DUCK_SCRIPT" ]]; then log "ERROR: Duck script not executable: $DUCK_SCRIPT"; exit 2; fi
 
