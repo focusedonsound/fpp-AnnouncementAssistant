@@ -99,6 +99,14 @@ $today = date('Y-m-d');
   color: #fff !important;
   text-decoration: none !important;
 }
+.aa-btn-secondary {
+  background-color: #6c757d;
+  border-color: #6c757d;
+}
+.aa-btn-secondary:hover, .aa-btn-secondary:focus {
+  background-color: #5c636a;
+  border-color: #565e64;
+}
 @media (max-width: 640px) {
   .aa-page-header { flex-wrap: wrap !important; row-gap: .5rem; }
   .aa-page-header > *:first-child { flex: 1 1 100%; }
@@ -113,6 +121,11 @@ $today = date('Y-m-d');
        target="_blank" rel="noopener noreferrer"
        class="aa-btn">
       <i class="fas fa-fw fa-code-branch"></i> GitHub Repo
+    </a>
+    <a href="https://github.com/focusedonsound/fpp-AnnouncementAssistant/issues"
+       target="_blank" rel="noopener noreferrer"
+       class="aa-btn aa-btn-secondary">
+      <i class="fas fa-fw fa-bug"></i> Report an Issue
     </a>
   </div>
 </div>
