@@ -8,6 +8,34 @@
   "bugURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant/issues",
   "iconURL": "https://raw.githubusercontent.com/focusedonsound/fpp-AnnouncementAssistant/main/icon.png",
   "allowUpdates": 1,
+  "privacy": {
+    "summary": "Plays announcement audio you provide over the show, using only FPP's own local playback/Command API. Makes no outbound network calls and has no registration or license server.",
+    "sends": [],
+    "collects": [
+      {
+        "what": "per-slot play counts (total, today)",
+        "about": "household",
+        "keptDays": null,
+        "canDelete": true,
+        "where": "plugindata/fpp-AnnouncementAssistant/state/aa_play_counts.json"
+      },
+      {
+        "what": "operational log: timestamp, action, file path, duck %, and the LAN IP that triggered the button",
+        "about": "household",
+        "keptDays": null,
+        "canDelete": false,
+        "where": "plugin log"
+      }
+    ],
+    "sensors": [],
+    "remoteAccess": "none",
+    "systemChanges": [
+      { "kind": "service", "what": "creates announcementassistant-pulse.service and rewrites /etc/pulse/system.pa and daemon.conf (originals backed up)" },
+      { "kind": "privilege", "what": "adds the pulse and fpp users to the audio group" }
+    ],
+    "closedCode": false,
+    "other": "FPP Command registrations (\"Announcement Assistant - Play/Stop\") let announcements be triggered from FPP's own schedules, playlists, and remote/API command paths, not just this plugin's own page - no new external listener is opened. The system PulseAudio socket (/run/pulse/native) allows anonymous, world-writable local connections by design, for FPP's own audio pipeline to reach it; it is not exposed over the network. Play-count resets are available in the UI; the operational log has no delete control."
+  },
   "versions": [
     {
       "minFPPVersion": "9.0",
