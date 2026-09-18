@@ -337,10 +337,10 @@ show_easter_egg() {
     "fpp-hdmi-cec|controls your TV/monitor power and input over HDMI-CEC"
   )
   local jokes=(
-    "Why did the microphone apologize? It said some things it shouldn't have — feedback."
-    "I asked the PA system to keep a secret. It announced it to the whole yard instead."
-    "Why did the speaker get a promotion? It really knew how to project."
-    "What do you call an announcement that keeps repeating itself? A rerun with better acoustics."
+    "Why did the microphone get promoted? It really knew how to speak up for itself."
+    "I told the PA system a secret. Now the whole neighborhood knows."
+    "My speaker and I don't argue. We just talk it out — loudly."
+    "Why did the announcement retire? It felt like it kept repeating itself."
   )
 
   local candidates=()
@@ -351,21 +351,28 @@ show_easter_egg() {
   done
 
   echo
-  echo "🏆 ACHIEVEMENT UNLOCKED"
-  echo "════════════════════════════════════════"
-  echo "📢  fpp-AnnouncementAssistant installed / updated"
+  echo "══════════════════════════════════════════"
+  echo "   🏆  A C H I E V E M E N T   U N L O C K E D"
+  echo "══════════════════════════════════════════"
+  echo
+  echo "  📢  fpp-AnnouncementAssistant — installed & ready to roll"
   echo
   echo "  \"${jokes[$((RANDOM % ${#jokes[@]}))]}\""
   echo
+  echo "  ⭐⭐⭐⭐⭐  (dad-joke rating, self-awarded)"
+  echo
+  echo "──────────────────────────────────────────"
   if [ ${#candidates[@]} -gt 0 ]; then
     entry="${candidates[$((RANDOM % ${#candidates[@]}))]}"
     repo="${entry%%|*}"
     blurb="${entry#*|}"
-    echo "🎁 Haven't tried ${repo} yet? ${blurb}"
-    echo "   https://github.com/focusedonsound/${repo}"
+    echo "  🎁  NEXT UP: ${repo}"
+    echo "      ${blurb}"
+    echo "      → https://github.com/focusedonsound/${repo}"
   else
-    echo "🎉 Looks like you've got the whole FocusedOnSound collection installed already!"
+    echo "  🎉  FULL COLLECTION UNLOCKED — every FocusedOnSound plugin, right here."
   fi
+  echo "──────────────────────────────────────────"
   echo
 }
 
