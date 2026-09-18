@@ -321,6 +321,53 @@ Notes:
 EOF
 }
 
+# A little something for whoever's actually reading the install log. Only
+# ever recommends a sibling plugin that isn't already sitting right next to
+# this one, so it never suggests something you've clearly already got.
+show_easter_egg() {
+  local plugin_dir_abs
+  plugin_dir_abs="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  local plugins_root
+  plugins_root="$(dirname "$plugin_dir_abs")"
+
+  local siblings=(
+    "fpp-tally|counts cars and crowd size passing your show"
+    "fpp-EncoreRadio|keeps the radio-station vibe going after the show ends"
+    "fpp-sled-mailbox|a smart Letters-to-Santa mailbox with visitor detection"
+    "fpp-hdmi-cec|controls your TV/monitor power and input over HDMI-CEC"
+  )
+  local jokes=(
+    "Why did the announcement go to the doctor? Bad case of feedback."
+    "I told the loudspeaker a joke... it really amplified my sense of humor."
+    "My microphone and I are close — we're always on the same channel."
+    "Why did the PA system win the debate? It always had the last word."
+  )
+
+  local candidates=()
+  local entry repo blurb
+  for entry in "${siblings[@]}"; do
+    repo="${entry%%|*}"
+    [ -d "${plugins_root}/${repo}" ] || candidates+=("$entry")
+  done
+
+  echo
+  echo "  🏆 ┌───────────────────────────────────────────────────────┐"
+  echo "     │   ACHIEVEMENT UNLOCKED: 📢 fpp-AnnouncementAssistant     │"
+  echo "     └───────────────────────────────────────────────────────┘"
+  echo "  ${jokes[$((RANDOM % ${#jokes[@]}))]}"
+  echo
+  if [ ${#candidates[@]} -gt 0 ]; then
+    entry="${candidates[$((RANDOM % ${#candidates[@]}))]}"
+    repo="${entry%%|*}"
+    blurb="${entry#*|}"
+    echo "  🎁 Haven't tried ${repo} yet? ${blurb}"
+    echo "     https://github.com/focusedonsound/${repo}"
+  else
+    echo "  🎉 Looks like you've got the whole FocusedOnSound collection installed already!"
+  fi
+  echo
+}
+
 main() {
   parse_args "$@"
   need_root
@@ -353,6 +400,7 @@ main() {
   setSetting restartFlag 1 2>/dev/null || true
 
   log "Done."
+  show_easter_egg
 }
 
 main "$@"
