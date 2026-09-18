@@ -409,11 +409,11 @@ _show_easter_egg_render() {
 
   local wordmark mascot
   wordmark=$(cat <<'WORDMARK'
- ###    ###
-#   #  #   #
-#####  #####
-#   #  #   #
-#   #  #   #
+.###....###...
+#...#..#...#..
+#####..#####..
+#...#..#...#..
+#...#..#...#..
 WORDMARK
 )
   mascot=$(cat <<'MASCOT'
