@@ -376,7 +376,7 @@ render_speech_bubble() {
 # this one, so it never suggests something you've clearly already got. A
 # 1-in-7 roll swaps the everyday joke pool for a separate "rare drop" pool
 # with its own art framing, instead of just re-skinning the same box.
-show_easter_egg() {
+_show_easter_egg_render() {
   local plugin_dir_abs
   plugin_dir_abs="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   local plugins_root
@@ -465,6 +465,18 @@ MASCOT
   fi
   echo "  ----------------------------------------"
   echo
+}
+
+# pluginsProgressPopupText (the "Upgrade Plugin" dialog) is a <div>, not a
+# real <textarea>/<pre> -- FPP core's StreamURL() inserts our output via
+# innerHTML with only \n -> <br> conversion (see www/js/fpp.js), so normal
+# HTML whitespace collapsing squashes every run of spaces down to one,
+# wrecking any column-aligned ASCII art. A non-breaking space (U+00A0) is
+# never collapsed, so render everything normally and swap plain spaces for
+# nbsp right before printing, rather than trying to build every line out of
+# nbsp by hand.
+show_easter_egg() {
+  _show_easter_egg_render | sed 's/ /\xc2\xa0/g'
 }
 
 main() {
