@@ -8,6 +8,7 @@
   "bugURL": "https://github.com/focusedonsound/fpp-AnnouncementAssistant/issues",
   "iconURL": "https://raw.githubusercontent.com/focusedonsound/fpp-AnnouncementAssistant/main/icon.png",
   "allowUpdates": 1,
+  "releaseNotesStyle": "gitRelease",
   "privacy": {
     "summary": "Plays announcement audio you provide over the show, using only FPP's own local playback/Command API. Makes no outbound network calls and has no registration or license server.",
     "sends": [],
