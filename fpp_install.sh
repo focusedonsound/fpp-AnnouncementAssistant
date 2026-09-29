@@ -88,6 +88,19 @@ pipewire_present() {
     [[ -S "${PIPEWIRE_RUNTIME_DIR}/pipewire-0" ]]
 }
 
+# Encore Radio and this plugin both expose the same /run/pulse/native
+# socket, and each used to unconditionally tear down and rebuild it on
+# every install/update - whichever ran last would `rm -rf /run/pulse` out
+# from under the other, orphaning its still-running bridge process. Reuse
+# an existing socket instead, same as Encore Radio already does - but
+# check it's actually alive (a real pactl round trip), not just that the
+# file exists: a stale file left by a crashed instance must still be
+# replaced, a healthy one owned by the other plugin must not be torn down.
+pulse_bridge_alive() {
+  [[ -S /run/pulse/native ]] || return 1
+  timeout 3 env PULSE_SERVER=unix:/run/pulse/native pactl info >/dev/null 2>&1
+}
+
 install_pkgs_if_missing() {
   local missing=0
   # Debian's `pipewire-alsa` package - the ALSA shim that routes ordinary
@@ -571,7 +584,9 @@ main() {
   install_pkgs_if_missing
   ensure_users_in_audio_group
 
-  if pipewire_present; then
+  if pulse_bridge_alive; then
+    log "System PulseAudio socket already present and responding (/run/pulse/native) - reusing it, not rebuilding."
+  elif pipewire_present; then
     install_pipewire_pulse_bridge
   else
     install_pulse_system_pa
