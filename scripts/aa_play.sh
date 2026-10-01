@@ -8,6 +8,30 @@ STATE_FILE="${STATE_DIR}/aa_playing.lock"
 COOLDOWN_FILE="${STATE_DIR}/aa_cooldown.ts"
 mkdir -p "$STATE_DIR" 2>/dev/null || true
 
+# This is the one script both real entry points share: the FPP Command API
+# (fppd runs Commands as root) and this plugin's own www/trigger.php "test"
+# button (PHP-FPM, runs as the unprivileged fpp user). Whichever runs
+# first decides this directory's (and its files') ownership - reported on
+# real hardware (issue #3): root creates it first, and the next fpp-run
+# attempt to write aa_cooldown.ts fails outright, since an unprivileged
+# process can never fix a root-owned directory or file itself, only root
+# can. So do that proactively, every time this happens to be the one
+# running as root, rather than leaving it to chance which path runs
+# first - via a trap (not just once at the top) so it also catches files
+# THIS run itself freshly creates while running as root (confirmed on
+# real hardware: a single top-of-script-only sweep left aa_cooldown.ts
+# freshly root-owned again the moment this same root run wrote it a few
+# lines later, reopening the exact same window for the very next fpp-only
+# run). -R so an already-existing root-owned file from before this fix
+# gets repaired too, matching the reporter's own manual fix.
+fix_state_ownership() {
+    [[ "$(id -u)" -eq 0 ]] || return 0
+    chown -R fpp:fpp "$STATE_DIR" 2>/dev/null || true
+    chmod -R u+rwX,g+rwX "$STATE_DIR" 2>/dev/null || true
+}
+fix_state_ownership
+trap fix_state_ownership EXIT
+
 ts() { date '+%Y-%m-%d %H:%M:%S'; }
 log(){ echo "[$(ts)] [aa_play] $*" >> "$LOG_FILE"; }
 
