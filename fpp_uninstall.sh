@@ -65,6 +65,7 @@ remove_fpp_pulse_pin() {
 
   if id -u fpp >/dev/null 2>&1; then
     pkill -u fpp pulseaudio 2>/dev/null || true
+    pkill -u fpp pipewire-pulse 2>/dev/null || true
   fi
 }
 
@@ -72,10 +73,27 @@ main() {
   need_root
   log "Uninstalling Announcement Assistant (Audio Ducking)…"
 
-  remove_systemd_service
-  restore_pulse_system_pa
-  restore_pulse_daemon_conf
-  remove_fpp_pulse_pin
+  # The announcementassistant-pulse.service unit file only ever exists
+  # when THIS plugin was the one that set up the shared PulseAudio/
+  # PipeWire-pulse bridge at /run/pulse/native - if Encore Radio (or a
+  # previous AA install) got there first, this plugin's own install
+  # detects the existing socket and never creates this unit at all. So
+  # its presence/absence is a reliable signal for whether it's safe to
+  # revert (issue #2): reverting unconditionally silences Encore Radio
+  # until it's reinstalled, since Encore Radio's own ffplay has no
+  # PULSE_SERVER set and just lands on whatever bridge is already there -
+  # confirmed on real hardware. Encore Radio's own uninstaller already has
+  # this exact check for the reverse case; this ports it here.
+  local svc="/etc/systemd/system/announcementassistant-pulse.service"
+  if [[ -f "$svc" ]]; then
+    log "Reverting AA's PulseAudio/PipeWire-pulse setup (nothing else appears to depend on it)"
+    remove_systemd_service
+    restore_pulse_system_pa
+    restore_pulse_daemon_conf
+    remove_fpp_pulse_pin
+  else
+    log "announcementassistant-pulse.service not present - AA never owned the shared bridge (or another plugin does) - leaving it untouched."
+  fi
 
   # Signal FPP to restart fppd
   set +u

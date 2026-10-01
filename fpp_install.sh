@@ -123,6 +123,22 @@ install_pkgs_if_missing() {
     libasound2-plugins
     alsa-utils
   )
+  if pipewire_present; then
+    # Repair, not just prevent (ported from fpp-EncoreRadio issue #5 - the
+    # identical exposure exists here): a box hit by the real-pulseaudio/
+    # pipewire-alsa conflict before this plugin's own PipeWire detection
+    # existed is still sitting there with pipewire-alsa missing today.
+    # Nothing currently installed makes that obvious - PipeWire itself,
+    # fppd, and this plugin's own bridge all keep working fine regardless;
+    # only ALSA-via-PipeWire clients silently break. This is a straight
+    # dpkg -s check feeding the same install step below, so repair is just
+    # "ask for it every run" - a no-op once it's actually present.
+    # pipewire-audio-client-libraries has zero files of its own (confirmed
+    # on real hardware: dpkg -L lists only its own doc/changelog) - a
+    # transitional package that just depends on pipewire-alsa, included
+    # here to leave dpkg's own state clean, not because it does anything.
+    pkgs+=(pipewire-alsa pipewire-audio-client-libraries)
+  fi
 
   for p in "${pkgs[@]}"; do
     if ! dpkg -s "$p" >/dev/null 2>&1; then
@@ -244,8 +260,15 @@ ExecStartPre=/bin/sh -c 'touch /home/fpp/media/logs/plugin-fpp-AnnouncementAssis
 
 ExecStart=/usr/bin/pulseaudio --system -nF /etc/pulse/system.pa --disallow-exit --exit-idle-time=-1 --log-target=file:/home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log
 
-# Ensure local clients (fppd + plugin scripts) can connect to the socket
-ExecStartPost=/bin/sh -c 'chmod 0666 /run/pulse/native || true'
+# Ensure local clients (fppd + plugin scripts) can connect to the socket.
+# Group audio + 0660, not 0666 (Plugin Guidelines §2.4: never loosen
+# device permissions) - the bridge runs as root and fppd-launched scripts
+# are root too, so any process actually needing this socket is either
+# root (unrestricted regardless) or in the audio group already
+# (ensure_users_in_audio_group(), above in this script) - 0666 would let
+# any local user or process play through, or record from, the system
+# audio server, not just plugins that have a legitimate reason to.
+ExecStartPost=/bin/sh -c 'chgrp audio /run/pulse/native && chmod 0660 /run/pulse/native || true'
 
 Restart=on-failure
 RestartSec=1
@@ -304,7 +327,9 @@ Environment=PULSE_RUNTIME_PATH=/run/pulse
 ExecStartPre=/usr/bin/install -d -o pulse -g pulse -m 0755 /run/pulse
 ExecStartPre=/bin/sh -c 'touch /home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log && chown pulse:pulse /home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log'
 ExecStart=/usr/bin/pipewire-pulse
-ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/pulse/native ] && break; sleep 0.2; done; chmod 0666 /run/pulse/native || true'
+# Group audio + 0660, not 0666 - see the identical real-pulseaudio unit
+# above for why.
+ExecStartPost=/bin/sh -c 'for i in 1 2 3 4 5 6 7 8 9 10; do [ -S /run/pulse/native ] && break; sleep 0.2; done; chgrp audio /run/pulse/native && chmod 0660 /run/pulse/native || true'
 Restart=on-failure
 RestartSec=1
 

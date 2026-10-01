@@ -6,7 +6,7 @@ header('Content-Type: application/json; charset=utf-8');
 $configFile = "/home/fpp/media/config/announcementassistant.json";
 $musicRoot  = "/home/fpp/media/music";
 $script     = "/home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_play.sh";
-$logFile    = "/home/fpp/media/logs/AnnouncementAssistant.log";
+$logFile    = "/home/fpp/media/logs/plugin-fpp-AnnouncementAssistant.log";
 
 function logLine($logFile, $msg) {
     $ts = date('Y-m-d H:i:s');

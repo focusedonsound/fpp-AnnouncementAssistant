@@ -4,7 +4,7 @@
 # Stops the currently playing announcement and restores show audio volume.
 # Env:  MEDIADIR, FPPDIR, SCRIPTDIR set by FPP command runner
 
-LOGFILE="${MEDIADIR:-/home/fpp/media}/logs/AnnouncementAssistant.log"
+LOGFILE="${MEDIADIR:-/home/fpp/media}/logs/plugin-fpp-AnnouncementAssistant.log"
 PLUGIN_DIR="$(dirname "$(dirname "$0")")"
 PLAY_SCRIPT="${PLUGIN_DIR}/scripts/aa_play.sh"
 

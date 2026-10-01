@@ -5,7 +5,7 @@
 # Env:   MEDIADIR, FPPDIR, SCRIPTDIR set by FPP command runner
 
 SLOT="${1}"
-LOGFILE="${MEDIADIR:-/home/fpp/media}/logs/AnnouncementAssistant.log"
+LOGFILE="${MEDIADIR:-/home/fpp/media}/logs/plugin-fpp-AnnouncementAssistant.log"
 CONFIG="${MEDIADIR:-/home/fpp/media}/config/announcementassistant.json"
 PLUGIN_DIR="$(dirname "$(dirname "$0")")"
 PLAY_SCRIPT="${PLUGIN_DIR}/scripts/aa_play.sh"
