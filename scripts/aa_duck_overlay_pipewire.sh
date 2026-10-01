@@ -56,14 +56,36 @@ normalize_duck() {
 # ── FPP Command API helper ─────────────────────────────────────────────
 # Always POST a JSON array body — avoids arg-splitting issues that a GET-form
 # URL would have with a file path (which itself contains "/").
-
+#
+# Retries a transient failure (a slow/dropped round-trip to fppd, not an
+# HTTP-level error - curl's own exit code doesn't change on a non-2xx
+# response here) up to 3 times with a short backoff, rather than one
+# unretried attempt. Reproduced on real hardware: a single hiccup here,
+# under this script's own set -Eeuo pipefail, used to kill the whole
+# script silently right at this line - the EXIT trap still logged
+# RESTORE, so the log looked like a normal run except for the missing
+# PLAY/DONE lines in between, and FPP's own Command wrapper always
+# reports "complete" regardless, so neither the log nor the UI ever
+# surfaced that anything had gone wrong.
 api_cmd() {
     local name="$1"; shift
-    local args_json
+    local args_json encoded_name resp attempt
     args_json="$(python3 -c "import json,sys; print(json.dumps(sys.argv[1:]))" "$@")"
-    curl -s -m 10 -X POST -H 'Content-Type: application/json' \
-        -d "$args_json" \
-        "${FPP_BASE}/api/command/$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$name")"
+    encoded_name="$(python3 -c "import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1]))" "$name")"
+
+    for attempt in 1 2 3; do
+        resp="$(curl -s -m 10 -X POST -H 'Content-Type: application/json' \
+            -d "$args_json" \
+            "${FPP_BASE}/api/command/${encoded_name}")"
+        if [[ -n "$resp" ]]; then
+            echo "$resp"
+            return 0
+        fi
+        log "WARNING: '$name' API call returned nothing (attempt ${attempt}/3)"
+        [[ "$attempt" -lt 3 ]] && sleep 1
+    done
+    log "ERROR: '$name' API call failed after 3 attempts - fppd may be unresponsive"
+    return 1
 }
 
 media_slot_status() {
@@ -168,8 +190,15 @@ log "START: duck=${DUCK}% file=$FILE slot=$SLOT"
 api_cmd "Set Slot Volume" "$SHOW_SLOT" "$DUCK" >/dev/null 2>&1 || true
 log "DUCK: slot=$SHOW_SLOT -> ${DUCK}%"
 
-# Dispatch the announcement onto its own slot: media, loop=1, volumeAdjust=0, slot
-RESP="$(api_cmd "Play Media" "$FILE" "1" "0" "$SLOT")"
+# Dispatch the announcement onto its own slot: media, loop=1, volumeAdjust=0, slot.
+# Explicit failure handling, not a bare call under set -e: api_cmd's own
+# retries already absorb a transient hiccup, but if it still fails, this
+# must log clearly and exit through the normal trap (which restores show
+# volume) rather than die silently with no indication which step failed.
+if ! RESP="$(api_cmd "Play Media" "$FILE" "1" "0" "$SLOT")"; then
+    log "ERROR: Play Media dispatch failed - announcement will not play, restoring show volume"
+    exit 1
+fi
 log "PLAY: dispatched to slot=$SLOT resp=$RESP"
 
 # Wait for it to actually start (bounded — a slot that never starts, e.g. a
