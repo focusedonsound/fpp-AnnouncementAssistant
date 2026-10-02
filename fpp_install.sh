@@ -625,6 +625,17 @@ main() {
     install_systemd_service_if_available
   fi
 
+  # Shared marker directory both this plugin and Encore Radio write a file
+  # into (named after their own repoName) whenever either one depends on
+  # /run/pulse/native - regardless of which one actually owns the systemd
+  # unit serving it. See Encore Radio's fpp_install.sh for the full
+  # rationale: "does my own unit file exist" answers "do I need to create
+  # the bridge" but not "is anyone else still depending on it", which is
+  # what fpp_uninstall.sh actually needs to check before tearing it down.
+  mkdir -p /etc/fpp-plugins/pulse-bridge-owners 2>/dev/null || true
+  chmod 755 /etc/fpp-plugins/pulse-bridge-owners 2>/dev/null || true
+  : > /etc/fpp-plugins/pulse-bridge-owners/fpp-AnnouncementAssistant 2>/dev/null || true
+
   pin_fpp_user_to_system_pulse
   seed_default_config_if_missing
   fix_plugin_script_perms
