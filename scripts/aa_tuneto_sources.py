@@ -182,3 +182,161 @@ def resolve_template(template, ctx):
         return str(ctx.get(m.group(1), ""))
 
     return _TOKEN_RE.sub(sub, template or ""), skip
+
+
+# ── Weather & sensors (Phase 2) ──────────────────────────────────────────────
+# WMO weather interpretation codes -> short human text (Open-Meteo "weather_code").
+_WMO = {
+    0: "Clear", 1: "Mostly Clear", 2: "Partly Cloudy", 3: "Cloudy",
+    45: "Fog", 48: "Rime Fog",
+    51: "Light Drizzle", 53: "Drizzle", 55: "Heavy Drizzle",
+    56: "Freezing Drizzle", 57: "Freezing Drizzle",
+    61: "Light Rain", 63: "Rain", 65: "Heavy Rain",
+    66: "Freezing Rain", 67: "Freezing Rain",
+    71: "Light Snow", 73: "Snow", 75: "Heavy Snow", 77: "Snow Grains",
+    80: "Showers", 81: "Showers", 82: "Heavy Showers",
+    85: "Snow Showers", 86: "Snow Showers",
+    95: "Thunderstorm", 96: "Thunderstorm", 99: "Thunderstorm",
+}
+
+
+def _fetch_openmeteo(lat, lon, units):
+    """Return a weather dict from Open-Meteo (keyless), or {} on failure."""
+    temp_unit = "fahrenheit" if units == "F" else "celsius"
+    wind_unit = "mph" if units == "F" else "kmh"
+    wind_label = "mph" if units == "F" else "km/h"
+    url = (
+        "https://api.open-meteo.com/v1/forecast"
+        "?latitude=%s&longitude=%s"
+        "&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m"
+        "&daily=temperature_2m_max,temperature_2m_min"
+        "&temperature_unit=%s&wind_speed_unit=%s&timezone=auto&forecast_days=1"
+        % (lat, lon, temp_unit, wind_unit)
+    )
+    d = _http_json(url, timeout=6)
+    if not isinstance(d, dict):
+        return {}
+    cur = d.get("current", {}) or {}
+    daily = d.get("daily", {}) or {}
+    out = {}
+    try:
+        if cur.get("temperature_2m") is not None:
+            out["temp"] = "%d°%s" % (round(cur["temperature_2m"]), units)
+        if cur.get("relative_humidity_2m") is not None:
+            out["humidity"] = "%d%%" % round(cur["relative_humidity_2m"])
+        if cur.get("weather_code") is not None:
+            out["conditions"] = _WMO.get(int(cur["weather_code"]), "")
+        if cur.get("wind_speed_10m") is not None:
+            out["wind"] = "%d %s" % (round(cur["wind_speed_10m"]), wind_label)
+        hi = (daily.get("temperature_2m_max") or [None])[0]
+        lo = (daily.get("temperature_2m_min") or [None])[0]
+        if hi is not None:
+            out["high"] = "%d°" % round(hi)
+        if lo is not None:
+            out["low"] = "%d°" % round(lo)
+    except (TypeError, ValueError):
+        pass
+    return out
+
+
+def _read_dht(sensor_type, gpio, units):
+    """Read a DHT11/DHT22 on a GPIO pin. Lazy import; {} if unavailable."""
+    try:
+        import board
+        import adafruit_dht
+    except Exception:
+        return {}
+    try:
+        pin = getattr(board, "D%d" % int(gpio))
+        cls = adafruit_dht.DHT11 if sensor_type == "DHT11" else adafruit_dht.DHT22
+        dev = cls(pin)
+        t_c = dev.temperature
+        rh = dev.humidity
+        try:
+            dev.exit()
+        except Exception:
+            pass
+        out = {}
+        if t_c is not None:
+            t = t_c * 9 / 5 + 32 if units == "F" else t_c
+            out["temp"] = "%d°%s" % (round(t), units)
+        if rh is not None:
+            out["humidity"] = "%d%%" % round(rh)
+        return out
+    except Exception:
+        return {}
+
+
+def _read_bme280(i2c_addr, units):
+    """Read a BME280 over I2C. Lazy import; {} if unavailable."""
+    try:
+        import board
+        import busio
+        from adafruit_bme280 import basic as adafruit_bme280
+    except Exception:
+        return {}
+    try:
+        addr = int(i2c_addr, 16) if isinstance(i2c_addr, str) else int(i2c_addr)
+        i2c = busio.I2C(board.SCL, board.SDA)
+        dev = adafruit_bme280.Adafruit_BME280_I2C(i2c, address=addr)
+        t_c = dev.temperature
+        rh = dev.relative_humidity
+        p = dev.pressure
+        out = {}
+        if t_c is not None:
+            t = t_c * 9 / 5 + 32 if units == "F" else t_c
+            out["temp"] = "%d°%s" % (round(t), units)
+        if rh is not None:
+            out["humidity"] = "%d%%" % round(rh)
+        if p is not None:
+            out["pressure"] = "%d hPa" % round(p)
+        return out
+    except Exception:
+        return {}
+
+
+class EnvironmentPoller:
+    """Polls the configured weather/sensor source on its own cadence and
+    caches the last good reading (so a transient failure keeps the last value
+    rather than blanking weather tokens)."""
+
+    def __init__(self):
+        self._cache = {}
+        self._next = 0.0
+        self._sig = None
+
+    def poll(self, env_cfg):
+        import time as _t
+        env_cfg = env_cfg or {}
+        source = env_cfg.get("source", "none")
+        units = env_cfg.get("units", "F")
+        if source == "none":
+            return {}
+
+        # Re-fetch immediately if the relevant config changed.
+        sig = json.dumps({"s": source, "u": units,
+                          "om": env_cfg.get("open_meteo"),
+                          "se": env_cfg.get("sensor")}, sort_keys=True)
+        now = _t.monotonic()
+        if sig != self._sig:
+            self._sig, self._next, self._cache = sig, 0.0, {}
+        if now < self._next:
+            return self._cache
+
+        if source == "open-meteo":
+            om = env_cfg.get("open_meteo", {}) or {}
+            data = _fetch_openmeteo(om.get("lat", 0), om.get("lon", 0), units)
+            interval = max(60, int(om.get("refresh_min", 10)) * 60)
+        else:  # sensor
+            se = env_cfg.get("sensor", {}) or {}
+            stype = se.get("type", "DHT22")
+            if stype == "BME280":
+                data = _read_bme280(se.get("i2c_addr", "0x76"), units)
+            else:
+                data = _read_dht(stype, se.get("gpio", 4), units)
+            interval = max(2, int(se.get("refresh_sec", 30)))
+
+        if data:                      # keep last good values on a failed read
+            self._cache = data
+        self._next = now + interval
+        return self._cache

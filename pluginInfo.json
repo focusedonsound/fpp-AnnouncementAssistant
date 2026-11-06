@@ -10,8 +10,15 @@
   "allowUpdates": 1,
   "releaseNotesStyle": "gitRelease",
   "privacy": {
-    "summary": "Plays announcement audio you provide over the show, using only FPP's own local playback/Command API. Makes no outbound network calls and has no registration or license server.",
-    "sends": [],
+    "summary": "Plays announcement audio you provide over the show, using FPP's own local playback/Command API. The optional Tune To matrix sign can fetch current weather from Open-Meteo (no account or API key) only when you enable that source; otherwise the plugin makes no outbound network calls, and it has no registration or license server.",
+    "sends": [
+      {
+        "what": "the latitude/longitude you enter for the Tune To weather display",
+        "to": "api.open-meteo.com",
+        "when": "only when the Tune To weather source is set to Open-Meteo; polled on your configured interval (default every 10 minutes)",
+        "why": "to show current temperature, conditions, wind, and daily high/low on the matrix sign"
+      }
+    ],
     "collects": [
       {
         "what": "per-slot play counts (total, today)",
@@ -28,11 +35,18 @@
         "where": "plugin log"
       }
     ],
-    "sensors": [],
+    "sensors": [
+      {
+        "what": "local temperature and humidity (plus barometric pressure on a BME280) from a DHT11/DHT22 or BME280 you wire to the Pi",
+        "when": "only when the Tune To weather source is set to Local sensor",
+        "where": "shown on the matrix sign; not stored or transmitted off the device"
+      }
+    ],
     "remoteAccess": "none",
     "systemChanges": [
       { "kind": "service", "what": "creates announcementassistant-pulse.service and rewrites /etc/pulse/system.pa and daemon.conf (originals backed up)" },
       { "kind": "service", "what": "creates announcementassistant-tuneto.service (Tune To matrix-sign renderer; drives an FPP Pixel Overlay model via FPP's local overlay API)" },
+      { "kind": "package", "what": "installs python3-pil (Pillow) for the Tune To renderer; and, only if you select a Local sensor, the matching Adafruit CircuitPython library plus i2c-tools and adds the fpp user to the gpio/i2c groups" },
       { "kind": "privilege", "what": "adds the pulse and fpp users to the audio group" }
     ],
     "closedCode": false,

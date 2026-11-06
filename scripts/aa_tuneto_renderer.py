@@ -332,6 +332,7 @@ def main():
     signal.signal(signal.SIGINT, _sigterm)
 
     states = {}
+    env = src.EnvironmentPoller()
     cfg_mtime = os.path.getmtime(args.config) if os.path.exists(args.config) else 0
     geom = (0, 0)
     geom_name = None
@@ -388,7 +389,8 @@ def main():
             time.sleep(1.0)
             continue
 
-        ctx = src.build_context(status)
+        weather = env.poll(cfg.get("environment", {}))
+        ctx = src.build_context(status, weather)
         frame, animating = compose_frame(cfg, ctx, width, height, states, dt)
         push_frame(model, frame)
         was_on = True

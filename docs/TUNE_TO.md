@@ -6,8 +6,9 @@
 > Progress: Phase 0 ✅ (tab + config + model/font listing). Phase 1 ✅ (renderer
 > daemon: overlay take-over/release, region compositing, song/playback/clock
 > tokens, static+hscroll+shrink+truncate, on/off, systemd unit, installer wiring).
-> Phase 2 (weather/sensors) · Phase 3 (fallbacks/schedule, vscroll/wipe) ·
-> Phase 4 (preview) remain.
+> Phase 2 ✅ (weather via Open-Meteo — validated live; DHT22/DHT11/BME280 sensor
+> readers with lazy imports, installer sensor-lib wiring, privacy manifest
+> updated). Phase 3 (fallbacks/schedule, vscroll/wipe) · Phase 4 (preview) remain.
 
 ---
 

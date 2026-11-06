@@ -438,6 +438,35 @@ install_tuneto_deps() {
   fi
 }
 
+# Only when the user has actually selected a Local sensor in the Tune To tab:
+# install the matching CircuitPython lib and grant GPIO/I2C access. Weather
+# via Open-Meteo needs none of this (pure HTTP from the renderer). Best-effort.
+install_tuneto_sensor_support() {
+  local cfg="/home/fpp/media/config/tuneto.json"
+  [[ -f "$cfg" ]] || return 0
+  command -v python3 >/dev/null 2>&1 || return 0
+
+  local src stype
+  src="$(python3 -c 'import json;print(json.load(open("/home/fpp/media/config/tuneto.json")).get("environment",{}).get("source",""))' 2>/dev/null || echo "")"
+  [[ "$src" == "sensor" ]] || return 0
+  stype="$(python3 -c 'import json;print(json.load(open("/home/fpp/media/config/tuneto.json")).get("environment",{}).get("sensor",{}).get("type","DHT22"))' 2>/dev/null || echo "DHT22")"
+
+  log "Tune To Local sensor selected (${stype}); installing sensor support…"
+  for g in gpio i2c; do
+    getent group "$g" >/dev/null 2>&1 && usermod -aG "$g" fpp 2>/dev/null || true
+  done
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get install -y --no-install-recommends i2c-tools >/dev/null 2>&1 || true
+
+  local lib="adafruit-circuitpython-dht"
+  [[ "$stype" == "BME280" ]] && lib="adafruit-circuitpython-bme280"
+  # Newer Debian needs --break-system-packages for a system pip install (PEP 668).
+  if ! pip3 install --break-system-packages "$lib" >/dev/null 2>&1; then
+    pip3 install "$lib" >/dev/null 2>&1 \
+      || log "WARN: could not install ${lib}; Tune To sensor readings will be unavailable."
+  fi
+}
+
 install_tuneto_service() {
   if ! command -v systemctl >/dev/null 2>&1; then
     log "systemctl not found; skipping Tune To renderer service (configure-only)."
@@ -521,6 +550,7 @@ main() {
   seed_default_config_if_missing
   fix_plugin_script_perms
   install_tuneto_deps
+  install_tuneto_sensor_support
   install_tuneto_service
   post_install_notes
 
