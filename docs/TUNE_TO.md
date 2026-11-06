@@ -8,7 +8,10 @@
 > tokens, static+hscroll+shrink+truncate, on/off, systemd unit, installer wiring).
 > Phase 2 ✅ (weather via Open-Meteo — validated live; DHT22/DHT11/BME280 sensor
 > readers with lazy imports, installer sensor-lib wiring, privacy manifest
-> updated). Phase 3 (fallbacks/schedule, vscroll/wipe) · Phase 4 (preview) remain.
+> updated). Phase 3 ✅ (no-media fallbacks: static-only / idle-message /
+> blank-release / bank-sign / showtimes; FPP-scheduler showtimes reader +
+> custom override; vscroll + wipe effects; fixed a rotation bug that skipped
+> each region's first message on startup). Phase 4 (in-tab live preview) remains.
 
 ---
 

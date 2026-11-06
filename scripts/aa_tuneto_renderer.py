@@ -192,7 +192,7 @@ def sign_is_on(cfg, status):
 class RegionState:
     def __init__(self):
         self.idx = 0
-        self.since = 0.0
+        self.since = None   # None = not yet shown; set to now on first render
         self.scroll = 0.0
 
 
@@ -215,8 +215,12 @@ def render_region(region, state, ctx, dt):
 
     idxs = [i for i, _ in renderable]
     now = time.monotonic()
-    if state.idx not in idxs:
-        state.idx, state.since, state.scroll = idxs[0], now, 0.0
+    if state.since is None or state.idx not in idxs:
+        # First render, or the current message is no longer renderable: show
+        # the first renderable one for its full dwell before advancing.
+        if state.idx not in idxs:
+            state.idx = idxs[0]
+        state.since, state.scroll = now, 0.0
     else:
         cur_msg = msgs[state.idx]
         if len(idxs) > 1 and (now - state.since) >= float(cur_msg.get("dwell_sec", 5)):
@@ -252,7 +256,11 @@ def render_region(region, state, ctx, dt):
         text = text + "…"
         tw = text_width(draw, text, font)
 
-    if effect in ("hscroll",) and tw > w:
+    anchor_h = {"left": "l", "center": "m", "right": "r"}[align]
+    anchor_x = {"left": 0.0, "center": w / 2.0, "right": float(w)}[align]
+    animating = False
+
+    if effect == "hscroll" and tw > w:
         # Continuous right-to-left scroll with a gap; draw two copies.
         gap = max(8, int(w * 0.25))
         state.scroll += speed * dt
@@ -260,16 +268,33 @@ def render_region(region, state, ctx, dt):
         off = state.scroll % period
         draw.text((-off, mid_y), text, font=font, fill=color, anchor="lm")
         draw.text((-off + period, mid_y), text, font=font, fill=color, anchor="lm")
+        animating = True
+    elif effect == "vscroll":
+        # Continuous upward marquee; wraps with a gap. Good for tall stacks.
+        asc, desc = font.getmetrics()
+        th = asc + desc
+        gap = max(4, int(h * 0.5))
+        period = th + gap
+        state.scroll += speed * dt
+        cy = (h / 2.0 + period) - (state.scroll % period)
+        for yy in (cy, cy - period, cy + period):
+            draw.text((anchor_x, yy), text, font=font, fill=color, anchor=anchor_h + "m")
+        animating = True
+    elif effect == "wipe":
+        # Reveal left-to-right; holds once fully shown (re-wipes on rotation).
+        full = Image.new("RGB", (w, h), (0, 0, 0))
+        ImageDraw.Draw(full).text((anchor_x, mid_y), text, font=font, fill=color,
+                                  anchor=anchor_h + "m")
+        state.scroll += speed * dt
+        reveal = int(min(w, state.scroll))
+        if reveal > 0:
+            img.paste(full.crop((0, 0, reveal, h)), (0, 0))
+        animating = reveal < w
     else:
         # static / shrink / truncate / fits: align within the region.
-        if align == "left":
-            draw.text((0, mid_y), text, font=font, fill=color, anchor="lm")
-        elif align == "right":
-            draw.text((w, mid_y), text, font=font, fill=color, anchor="rm")
-        else:
-            draw.text((w / 2.0, mid_y), text, font=font, fill=color, anchor="mm")
+        draw.text((anchor_x, mid_y), text, font=font, fill=color, anchor=anchor_h + "m")
 
-    return img, (effect in ("hscroll", "vscroll", "wipe") and tw > w)
+    return img, animating
 
 
 def compose_frame(cfg, ctx, width, height, states, dt):
@@ -290,6 +315,47 @@ def compose_frame(cfg, ctx, width, height, states, dt):
             continue
         frame.paste(img, (x, y))
     return frame, animating
+
+
+# ── No-media fallback ────────────────────────────────────────────────────────
+def build_fallback_region(cfg, mode, status, width, height):
+    """A synthetic full-panel region for the active no-media fallback mode,
+    reusing the normal region renderer (rotation/effects/skip all apply)."""
+    fb = cfg.get("fallback", {}) or {}
+    regions = cfg.get("regions", []) or []
+    base = {
+        "name": "_fallback",
+        "rect": {"x": 0, "y": 0, "w": width, "h": height},
+        "font": regions[0].get("font", "") if regions else "",
+        "size": max(6, int(height * 0.6)),
+        "color": "#FFFFFF",
+        "align": "center",
+        "messages": [],
+    }
+    if mode == "idle_message":
+        # shrink-to-fit so a long idle message is always fully visible.
+        base["messages"] = [{"template": fb.get("idle_message", ""),
+                             "effect": "shrink", "speed": 20, "dwell_sec": 6}]
+    elif mode == "bank":
+        # Classic bank sign: alternate time and temperature. {temp} skips when
+        # no weather source is configured, leaving just the clock.
+        base["messages"] = [
+            {"template": "{time}", "effect": "static", "speed": 20, "dwell_sec": 4},
+            {"template": "{temp}", "effect": "static", "speed": 20, "dwell_sec": 4},
+        ]
+    elif mode == "showtimes":
+        st = fb.get("showtimes", {}) or {}
+        source = st.get("source", "fpp")
+        custom = st.get("custom", "")
+        msgs = []
+        if source in ("fpp", "both"):
+            txt = src.fpp_showtimes(status)
+            if txt:
+                msgs.append({"template": txt, "effect": "hscroll", "speed": 16, "dwell_sec": 6})
+        if source in ("custom", "both") and custom:
+            msgs.append({"template": custom, "effect": "hscroll", "speed": 16, "dwell_sec": 6})
+        base["messages"] = msgs
+    return base
 
 
 # ── Config ───────────────────────────────────────────────────────────────────
@@ -391,7 +457,34 @@ def main():
 
         weather = env.poll(cfg.get("environment", {}))
         ctx = src.build_context(status, weather)
-        frame, animating = compose_frame(cfg, ctx, width, height, states, dt)
+
+        media_playing = bool(status.get("media_playing")) or bool(status.get("current_song"))
+        fb_mode = (cfg.get("fallback", {}) or {}).get("mode", "static_only")
+        use_fallback = (not media_playing) and fb_mode != "static_only"
+
+        if use_fallback and fb_mode == "blank":
+            # No song + "blank" fallback: release so the sequence's own pixels
+            # show on the model; re-take over when a song starts again.
+            if was_on:
+                release_model(model)
+                was_on = False
+            if args.once:
+                break
+            time.sleep(0.5)
+            continue
+
+        if use_fallback:
+            fregion = build_fallback_region(cfg, fb_mode, status, width, height)
+            fstate = states.setdefault("_fallback", RegionState())
+            out = render_region(fregion, fstate, ctx, dt)
+            frame = Image.new("RGB", (width, height), (0, 0, 0))
+            animating = False
+            if out:
+                fimg, animating = out
+                frame.paste(fimg, (0, 0))
+        else:
+            frame, animating = compose_frame(cfg, ctx, width, height, states, dt)
+
         push_frame(model, frame)
         was_on = True
 

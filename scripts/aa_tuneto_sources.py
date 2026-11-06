@@ -340,3 +340,52 @@ class EnvironmentPoller:
             self._cache = data
         self._next = now + interval
         return self._cache
+
+
+# ── Showtimes (Phase 3) ──────────────────────────────────────────────────────
+def _fmt_time(s):
+    """'HH:MM[:SS]' -> 'h:MM AM/PM'; named times (SunRise etc.) pass through."""
+    m = re.match(r"^(\d{1,2}):(\d{2})", str(s or ""))
+    if not m:
+        return str(s or "")
+    h = int(m.group(1))
+    ap = "AM" if h < 12 else "PM"
+    return "%d:%s %s" % (h % 12 or 12, m.group(2), ap)
+
+
+def fpp_showtimes(status=None):
+    """Best-effort human showtimes string from FPP's scheduler.
+
+    Tries /api/schedule's enabled entries (start-end windows); falls back to
+    the status block's nextPlaylist. Returns '' if nothing is scheduled.
+    NOTE: entry field names vary by FPP version - parsed defensively; confirm
+    on a box with a real schedule.
+    """
+    d = _http_json(FPP_API + "/schedule")
+    entries = d if isinstance(d, list) else (d.get("schedule") if isinstance(d, dict) else None)
+    windows = []
+    if isinstance(entries, list):
+        for e in entries:
+            if not isinstance(e, dict):
+                continue
+            if str(e.get("enabled", 1)) in ("0", "false", "False"):
+                continue
+            start = e.get("startTime") or e.get("start") or ""
+            end = e.get("endTime") or e.get("end") or ""
+            if not start:
+                continue
+            w = _fmt_time(start) + (("-" + _fmt_time(end)) if end else "")
+            if w not in windows:
+                windows.append(w)
+    if windows:
+        return "Shows " + " | ".join(windows[:4])
+
+    # Fallback: next scheduled playlist from status.
+    if status is None:
+        status = fpp_status()
+    nxt = (status.get("scheduler", {}) or {}).get("nextPlaylist", {}) or {}
+    name = nxt.get("playlistName", "")
+    when = nxt.get("scheduledStartTimeStr", "")
+    if name and name not in ("No playlist scheduled.",):
+        return ("Next: %s %s" % (name, when)).strip()
+    return ""
