@@ -129,6 +129,23 @@ $today = date('Y-m-d');
     </a>
   </div>
 </div>
+
+<!-- ── Tabs ─────────────────────────────────────────────────────────── -->
+<ul class="nav nav-tabs mb-3" id="aaTabs">
+  <li class="nav-item">
+    <a class="nav-link active" id="aaTabBtnAnnounce" href="#" onclick="aaShowTab('announce'); return false;">
+      <i class="fas fa-fw fa-bullhorn"></i> Announcements
+    </a>
+  </li>
+  <li class="nav-item">
+    <a class="nav-link" id="aaTabBtnTuneTo" href="#" onclick="aaShowTab('tuneto'); return false;">
+      <i class="fas fa-fw fa-tv"></i> Tune To
+    </a>
+  </li>
+</ul>
+
+<div class="tt-tab-content">
+  <div class="tt-tab-pane" id="aaTabAnnounce">
 <p class="text-muted">
   Play pre-recorded announcements over active show audio with automatic PulseAudio ducking.<br>
   <strong>Duck %</strong> controls how loud the show audio stays while the announcement plays &mdash;
@@ -411,6 +428,23 @@ $today = date('Y-m-d');
     <i class="fas fa-fw fa-stop"></i> Stop Current
   </button>
 </div>
+  </div><!-- /#aaTabAnnounce -->
+
+  <div class="tt-tab-pane" id="aaTabTuneTo" style="display:none;">
+    <?php include __DIR__ . '/tuneto.php'; ?>
+  </div><!-- /#aaTabTuneTo -->
+</div><!-- /.tt-tab-content -->
+
+<script>
+  // Tab switching (vanilla JS; avoids FPP 9 Bootstrap 4 vs FPP 10 Bootstrap 5 data-api differences)
+  function aaShowTab(which) {
+    var showAnn = (which === 'announce');
+    document.getElementById('aaTabAnnounce').style.display = showAnn ? '' : 'none';
+    document.getElementById('aaTabTuneTo').style.display   = showAnn ? 'none' : '';
+    document.getElementById('aaTabBtnAnnounce').classList.toggle('active', showAnn);
+    document.getElementById('aaTabBtnTuneTo').classList.toggle('active', !showAnn);
+  }
+</script>
 
 <script>
   const AA_PLUGIN_BASE =
