@@ -382,6 +382,8 @@ def main():
     ap.add_argument("--config", default=CONFIG_FILE)
     ap.add_argument("--once", action="store_true", help="render one frame and exit")
     ap.add_argument("--stop", action="store_true", help="clear/release the model and exit")
+    ap.add_argument("--preview", metavar="PNG",
+                    help="render one frame of --config to this PNG and exit (does not touch the overlay)")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     VERBOSE = args.verbose
@@ -392,6 +394,32 @@ def main():
     if args.stop:
         release_model(model)
         log("released", model)
+        return
+
+    if args.preview:
+        # Render one frame of the current config to a PNG for the in-tab
+        # preview. Ignores the on/off master (designers preview any time) but
+        # honors the no-media fallback so the preview matches real behavior.
+        geom = model_geometry(model)
+        width, height = geom if geom[0] > 0 and geom[1] > 0 else (64, 32)
+        status = src.fpp_status()
+        weather = src.EnvironmentPoller().poll(cfg.get("environment", {}))
+        ctx = src.build_context(status, weather)
+        media_playing = bool(status.get("media_playing")) or bool(status.get("current_song"))
+        fb_mode = (cfg.get("fallback", {}) or {}).get("mode", "static_only")
+        frame = Image.new("RGB", (width, height), (0, 0, 0))
+        if (not media_playing) and fb_mode not in ("static_only", "blank"):
+            out = render_region(build_fallback_region(cfg, fb_mode, status, width, height),
+                                RegionState(), ctx, 0.0)
+            if out:
+                frame.paste(out[0], (0, 0))
+        elif not ((not media_playing) and fb_mode == "blank"):
+            frame, _ = compose_frame(cfg, ctx, width, height, {}, 0.0)
+        try:
+            frame.save(args.preview)
+        except Exception as e:
+            log("preview save failed:", e)
+            sys.exit(1)
         return
 
     signal.signal(signal.SIGTERM, _sigterm)

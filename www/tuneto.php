@@ -85,9 +85,20 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   Manage your "Tune To" matrix sign in one place instead of baking the text into every
   sequence. Pick an FPP <strong>Pixel Overlay Model</strong>, lay out <strong>regions</strong>,
   and fill each with <strong>messages</strong> that mix literal text and
-  <code>{tokens}</code>. <em>(Phase 0: configuration only &mdash; the live renderer arrives
-  in Phase 1.)</em>
+  <code>{tokens}</code>. The <strong>Live Preview</strong> below updates as you edit.
 </p>
+
+<!-- ── Live Preview ─────────────────────────────────────────────────── -->
+<div class="tt-card">
+  <h5><i class="fas fa-fw fa-eye"></i> Live Preview
+    <span class="tt-muted" style="font-weight:normal;">&mdash; reflects your current edits; clock / song / weather refresh automatically</span>
+  </h5>
+  <div style="background:#000; border:1px solid #333; border-radius:.3rem; padding:8px; display:inline-block; max-width:100%;">
+    <canvas id="ttPreviewCanvas" width="64" height="32"
+            style="image-rendering:pixelated; image-rendering:crisp-edges; display:block; max-width:100%; height:auto; width:512px;"></canvas>
+  </div>
+  <div id="ttPreviewNote" class="tt-muted" style="margin-top:.4rem;">Rendering preview&hellip;</div>
+</div>
 
 <!-- ── Sign & On/Off ────────────────────────────────────────────────── -->
 <div class="tt-card">
@@ -494,6 +505,53 @@ $ttCfg = ttLoadConfig($ttConfigFile);
       })
       .catch(function (e) { ttNotify('Save request failed: ' + e, true); });
   };
+
+  // ── Live preview ────────────────────────────────────────────────────
+  var ttPreviewBusy = false;
+
+  function ttTabVisible() {
+    var pane = document.getElementById('aaTabTuneTo');
+    return pane && pane.style.display !== 'none' && !document.hidden;
+  }
+
+  function ttRenderPreview() {
+    if (ttPreviewBusy || !ttTabVisible()) return;
+    ttPreviewBusy = true;
+    ttSyncFromDom();
+    fetch(TT_BASE + 'tuneto_preview.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ttConfig),
+      cache: 'no-store'
+    }).then(function (res) {
+      var ct = res.headers.get('Content-Type') || '';
+      if (ct.indexOf('image') === 0) return res.blob();
+      return res.text().then(function (t) { throw new Error(t); });
+    }).then(function (blob) {
+      var url = URL.createObjectURL(blob);
+      var im = new Image();
+      im.onload = function () {
+        var cv = el('ttPreviewCanvas');
+        cv.width = im.width; cv.height = im.height;
+        cv.style.width = Math.min(im.width * 8, 640) + 'px';
+        var g = cv.getContext('2d');
+        g.imageSmoothingEnabled = false;
+        g.clearRect(0, 0, cv.width, cv.height);
+        g.drawImage(im, 0, 0);
+        URL.revokeObjectURL(url);
+        el('ttPreviewNote').textContent = im.width + '×' + im.height + ' — live preview';
+        ttPreviewBusy = false;
+      };
+      im.onerror = function () { ttPreviewBusy = false; };
+      im.src = url;
+    }).catch(function (e) {
+      el('ttPreviewNote').textContent = 'Preview unavailable: ' + String(e.message || e).slice(0, 180);
+      ttPreviewBusy = false;
+    });
+  }
+
+  setInterval(ttRenderPreview, 1500);
+  ttRenderPreview();
 
   // ── Token click-to-copy ─────────────────────────────────────────────
   document.querySelectorAll('.tt-tokens code').forEach(function (c) {

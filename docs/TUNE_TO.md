@@ -11,7 +11,11 @@
 > updated). Phase 3 ✅ (no-media fallbacks: static-only / idle-message /
 > blank-release / bank-sign / showtimes; FPP-scheduler showtimes reader +
 > custom override; vscroll + wipe effects; fixed a rotation bug that skipped
-> each region's first message on startup). Phase 4 (in-tab live preview) remains.
+> each region's first message on startup). Phase 4 ✅ (in-tab live preview:
+> `--preview` mode renders one frame of the current — even unsaved — config to a
+> PNG via the real renderer; `tuneto_preview.php` returns it over HTTP; the tab
+> polls it onto a scaled canvas. **All planned phases built & validated on
+> fpp-dev; real-matrix hardware test pending.**
 
 ---
 
@@ -229,9 +233,16 @@ Each phase is independently testable on the real panel and committed on `feature
   override; remaining effects (v-scroll, wipe, shrink-to-fit, truncate).
 - Acceptance: each fallback mode behaves; showtimes populate from FPP and/or custom.
 
-### Phase 4 — Live preview
-- Browser canvas simulating the panel at its pixel size, animating effects (approximate).
-- Acceptance: preview matches on-panel layout closely enough to configure without guessing.
+### Phase 4 — Live preview ✅
+- Server-rendered, pixel-accurate: the renderer's `--preview <png>` mode paints one
+  frame of the current config (ignoring the on/off master, honoring the no-media
+  fallback) to a PNG without touching the overlay; `www/tuneto_preview.php` runs it
+  and returns the PNG (POST the live edits to preview unsaved changes, else the saved
+  config); the tab's Live Preview card polls it (~1.5 s) onto a scaled, nearest-neighbor
+  `<canvas>`.
+- Acceptance: tab shows the actual rendered sign; byte-identical to the direct render.
+  **Validated on fpp-dev 2026-11-06** (HTTP 200, `image/png`, identical bytes to the
+  CLI render; frame correct: amber `103.3 FM`, idle message, live clock).
 
 ---
 
@@ -246,7 +257,7 @@ Each phase is independently testable on the real panel and committed on `feature
 | `scripts/aa_tuneto_renderer.py` | 1 | persistent renderer daemon |
 | `scripts/aa_tuneto_sources.py` | 1–2 | token/data-source resolvers |
 | `announcementassistant-tuneto.service` | 1 | systemd unit (installed by `fpp_install.sh`) |
-| `scripts/tuneto_preview.*` | 4 | preview renderer |
+| `www/tuneto_preview.php` | 4 | renders the current config to a preview PNG via the renderer's `--preview` mode |
 
 Touched: `status_menu.inc`/`www/index.php` (tab wiring), `fpp_install.sh` /
 `fpp_uninstall.sh` (service + Python deps), `pluginInfo.json` (privacy: Open-Meteo is the
