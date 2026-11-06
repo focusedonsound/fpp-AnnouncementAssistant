@@ -31,6 +31,29 @@ remove_systemd_service() {
   fi
 }
 
+remove_tuneto_service() {
+  # Best-effort: release the overlay model so the matrix renders normally,
+  # then stop/disable/remove the renderer service. Non-fatal throughout.
+  local here renderer svc
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  renderer="${here}/scripts/aa_tuneto_renderer.py"
+  if [[ -f "$renderer" ]] && command -v python3 >/dev/null 2>&1; then
+    python3 "$renderer" --stop 2>/dev/null || true
+  fi
+
+  if ! command -v systemctl >/dev/null 2>&1; then
+    return 0
+  fi
+  svc="/etc/systemd/system/announcementassistant-tuneto.service"
+  systemctl stop announcementassistant-tuneto.service 2>/dev/null || true
+  systemctl disable announcementassistant-tuneto.service 2>/dev/null || true
+  if [[ -f "$svc" ]]; then
+    rm -f "$svc"
+    systemctl daemon-reload 2>/dev/null || true
+    log "Removed announcementassistant-tuneto.service and released the overlay model"
+  fi
+}
+
 restore_pulse_system_pa() {
   local system_pa="/etc/pulse/system.pa"
   local backup="${system_pa}.aa.bak"
@@ -72,6 +95,10 @@ remove_fpp_pulse_pin() {
 main() {
   need_root
   log "Uninstalling Announcement Assistant (Audio Ducking)…"
+
+  # Tune To renderer is independent of the shared PulseAudio bridge below;
+  # always remove it and release its overlay model first.
+  remove_tuneto_service
 
   # The announcementassistant-pulse.service unit file only ever exists
   # when THIS plugin was the one that set up the shared PulseAudio/

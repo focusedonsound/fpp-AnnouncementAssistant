@@ -1,0 +1,17 @@
+[Unit]
+Description=Announcement Assistant - Tune To sign renderer
+After=network.target fppd.service
+Wants=fppd.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_tuneto_renderer.py
+Restart=always
+RestartSec=3
+User=fpp
+Group=fpp
+# Release the overlay model on stop so sequences render normally.
+ExecStopPost=/usr/bin/python3 /home/fpp/media/plugins/fpp-AnnouncementAssistant/scripts/aa_tuneto_renderer.py --stop
+
+[Install]
+WantedBy=multi-user.target

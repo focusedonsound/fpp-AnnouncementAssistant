@@ -32,6 +32,7 @@
     "remoteAccess": "none",
     "systemChanges": [
       { "kind": "service", "what": "creates announcementassistant-pulse.service and rewrites /etc/pulse/system.pa and daemon.conf (originals backed up)" },
+      { "kind": "service", "what": "creates announcementassistant-tuneto.service (Tune To matrix-sign renderer; drives an FPP Pixel Overlay model via FPP's local overlay API)" },
       { "kind": "privilege", "what": "adds the pulse and fpp users to the audio group" }
     ],
     "closedCode": false,
@@ -44,7 +45,7 @@
       "branch": "main",
       "sha": "",
       "dependencies": {
-        "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
+        "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins", "python3-pil"]
       }
     },
     {
@@ -53,7 +54,7 @@
       "branch": "main",
       "sha": "",
       "dependencies": {
-        "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins"]
+        "packages": ["pulseaudio", "pulseaudio-utils", "libasound2-plugins", "python3-pil"]
       }
     }
   ]

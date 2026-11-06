@@ -1,7 +1,13 @@
 # Tune To — Plan & Specification
 
-> Status: **Draft / design locked 2026-11-06.** Engine first, live preview as a fast-follow.
+> Status: **Phase 0 + Phase 1 built & hardware-validated (fpp-dev, FPP 10.x) 2026-11-06.** Engine first, live preview as a fast-follow.
 > Branch: `feature/tune-to` (do not merge to `main` until phases are tested on real hardware).
+>
+> Progress: Phase 0 ✅ (tab + config + model/font listing). Phase 1 ✅ (renderer
+> daemon: overlay take-over/release, region compositing, song/playback/clock
+> tokens, static+hscroll+shrink+truncate, on/off, systemd unit, installer wiring).
+> Phase 2 (weather/sensors) · Phase 3 (fallbacks/schedule, vscroll/wipe) ·
+> Phase 4 (preview) remain.
 
 ---
 

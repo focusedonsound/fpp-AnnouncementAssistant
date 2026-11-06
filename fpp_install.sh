@@ -422,6 +422,45 @@ fix_plugin_script_perms() {
   log "Ensured plugin script permissions."
 }
 
+# ── Tune To (matrix sign) renderer ─────────────────────────────────────────
+# Optional feature; its failures are non-fatal to the audio install.
+install_tuneto_deps() {
+  if dpkg -s python3-pil >/dev/null 2>&1; then
+    log "python3-pil (Pillow) already installed."
+    return 0
+  fi
+  log "Installing python3-pil (Pillow) for the Tune To renderer…"
+  export DEBIAN_FRONTEND=noninteractive
+  if ! apt-get install -y --no-install-recommends python3-pil >/dev/null 2>&1; then
+    apt-get update -y >/dev/null 2>&1 || true
+    apt-get install -y --no-install-recommends python3-pil \
+      || log "WARN: python3-pil install failed; Tune To rendering is unavailable until it is installed."
+  fi
+}
+
+install_tuneto_service() {
+  if ! command -v systemctl >/dev/null 2>&1; then
+    log "systemctl not found; skipping Tune To renderer service (configure-only)."
+    return 0
+  fi
+  local here svc unit
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  unit="${here}/announcementassistant-tuneto.service"
+  svc="/etc/systemd/system/announcementassistant-tuneto.service"
+  if [[ ! -f "$unit" ]]; then
+    log "WARN: Tune To service unit not found in plugin dir; skipping."
+    return 0
+  fi
+  cp -f "$unit" "$svc"
+  chmod 644 "$svc"
+  systemctl daemon-reload
+  systemctl enable announcementassistant-tuneto.service 2>/dev/null || true
+  # restart (not start) so an update reloads the new renderer code.
+  systemctl restart announcementassistant-tuneto.service 2>/dev/null \
+    || log "WARN: could not start Tune To renderer service (check: journalctl -u announcementassistant-tuneto)."
+  log "Installed Tune To renderer service (announcementassistant-tuneto.service)."
+}
+
 post_install_notes() {
   cat <<EOF
 
@@ -481,6 +520,8 @@ main() {
   pin_fpp_user_to_system_pulse
   seed_default_config_if_missing
   fix_plugin_script_perms
+  install_tuneto_deps
+  install_tuneto_service
   post_install_notes
 
   # Signal FPP to restart fppd so newly registered commands hot-load
