@@ -338,6 +338,64 @@ def compose_frame(cfg, ctx, width, height, states, dt):
     return frame, animating
 
 
+def draw_border(frame, cfg, anim_t):
+    """Paint a candy-cane border around the panel edge (diagonal 2+ color
+    stripes). Returns True if it animates (so the daemon keeps refreshing)."""
+    b = cfg.get("border") or {}
+    if not b.get("enabled"):
+        return False
+    W, H = frame.size
+    bw = max(1, min(2, int(b.get("width", 2))))
+    raw = b.get("colors") or ["#CC0000", "#FFFFFF"]
+    cols = [hex_rgb(c) for c in raw if isinstance(c, str)]
+    if len(cols) < 2:
+        cols = (cols or [(204, 0, 0)]) + [(255, 255, 255)]
+    n = len(cols)
+    stripe = max(1, int(b.get("stripe", 2)))
+    animate = bool(b.get("animate", True))
+    speed = float(b.get("speed", 8))
+    offset = (anim_t * speed) if animate else 0.0
+    px = frame.load()
+
+    def put(x, y):
+        idx = int((x + y - offset) // stripe)  # diagonal stripes; travel on offset
+        px[x, y] = cols[idx % n]
+
+    # Only touch the perimeter ring (cheap even at 20 fps on a Pi).
+    for y in range(bw):
+        for x in range(W):
+            put(x, y)
+            put(x, H - 1 - y)
+    for x in range(bw):
+        for y in range(bw, H - bw):
+            put(x, y)
+            put(W - 1 - x, y)
+    return animate
+
+
+def render_scene(cfg, ctx, status, width, height, states, dt, anim_t):
+    """Produce one full-panel frame (regions or no-media fallback) plus the
+    candy-cane border. Returns (Image, animating). The 'blank' fallback yields a
+    black frame here (the live daemon instead releases the model for it)."""
+    media_playing = bool(status.get("media_playing")) or bool(status.get("current_song"))
+    fb_mode = (cfg.get("fallback", {}) or {}).get("mode", "static_only")
+    frame = Image.new("RGB", (width, height), (0, 0, 0))
+    animating = False
+    if (not media_playing) and fb_mode == "blank":
+        pass  # black; real panel shows the running sequence
+    elif (not media_playing) and fb_mode != "static_only":
+        fstate = states.setdefault("_fallback", RegionState())
+        out = render_region(build_fallback_region(cfg, fb_mode, status, width, height),
+                            fstate, ctx, dt)
+        if out:
+            fimg, animating = out
+            frame.paste(fimg, (0, 0))
+    else:
+        frame, animating = compose_frame(cfg, ctx, width, height, states, dt)
+    b_anim = draw_border(frame, cfg, anim_t)
+    return frame, (animating or b_anim)
+
+
 # ── No-media fallback ────────────────────────────────────────────────────────
 def build_fallback_region(cfg, mode, status, width, height):
     """A synthetic full-panel region for the active no-media fallback mode,
@@ -404,7 +462,11 @@ def main():
     ap.add_argument("--once", action="store_true", help="render one frame and exit")
     ap.add_argument("--stop", action="store_true", help="clear/release the model and exit")
     ap.add_argument("--preview", metavar="PNG",
-                    help="render one frame of --config to this PNG and exit (does not touch the overlay)")
+                    help="render --config to this PNG and exit (does not touch the overlay)")
+    ap.add_argument("--frames", type=int, default=1,
+                    help="with --preview: render N animation frames stacked vertically into one PNG")
+    ap.add_argument("--fps", type=int, default=15,
+                    help="with --preview --frames: frames per second the animation advances")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
     VERBOSE = args.verbose
@@ -418,26 +480,30 @@ def main():
         return
 
     if args.preview:
-        # Render one frame of the current config to a PNG for the in-tab
-        # preview. Ignores the on/off master (designers preview any time) but
-        # honors the no-media fallback so the preview matches real behavior.
+        # Render the current config to a PNG for the in-tab preview. Ignores the
+        # on/off master (designers preview any time) but honors the no-media
+        # fallback so the preview matches real behavior. With --frames N it
+        # renders N animation frames (scroll/wipe/border motion) stacked
+        # vertically into one sprite sheet the browser plays as a loop.
         geom = model_geometry(model)
         width, height = geom if geom[0] > 0 and geom[1] > 0 else (64, 32)
         status = src.fpp_status()
         weather = src.EnvironmentPoller().poll(cfg.get("environment", {}))
         ctx = src.build_context(status, weather)
-        media_playing = bool(status.get("media_playing")) or bool(status.get("current_song"))
-        fb_mode = (cfg.get("fallback", {}) or {}).get("mode", "static_only")
-        frame = Image.new("RGB", (width, height), (0, 0, 0))
-        if (not media_playing) and fb_mode not in ("static_only", "blank"):
-            out = render_region(build_fallback_region(cfg, fb_mode, status, width, height),
-                                RegionState(), ctx, 0.0)
-            if out:
-                frame.paste(out[0], (0, 0))
-        elif not ((not media_playing) and fb_mode == "blank"):
-            frame, _ = compose_frame(cfg, ctx, width, height, {}, 0.0)
+        n = max(1, int(args.frames))
+        fps = max(1, int(args.fps))
+        states = {}
         try:
-            frame.save(args.preview)
+            if n <= 1:
+                frame, _ = render_scene(cfg, ctx, status, width, height, states, 0.0, 0.0)
+                frame.save(args.preview)
+            else:
+                sheet = Image.new("RGB", (width, height * n), (0, 0, 0))
+                for f in range(n):
+                    fr, _ = render_scene(cfg, ctx, status, width, height, states,
+                                         1.0 / fps, f / float(fps))
+                    sheet.paste(fr, (0, f * height))
+                sheet.save(args.preview)
         except Exception as e:
             log("preview save failed:", e)
             sys.exit(1)
@@ -533,6 +599,10 @@ def main():
                 frame.paste(fimg, (0, 0))
         else:
             frame, animating = compose_frame(cfg, ctx, width, height, states, dt)
+
+        # Candy-cane border (animates stripes around the edge when enabled).
+        if draw_border(frame, cfg, now):
+            animating = True
 
         push_frame(model, frame)
         was_on = True

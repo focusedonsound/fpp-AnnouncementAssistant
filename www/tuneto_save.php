@@ -145,6 +145,21 @@ $out["fallback"] = [
   ],
 ];
 
+// border (candy-cane edge)
+$bd = is_array($in["border"] ?? null) ? $in["border"] : [];
+$bcolors = is_array($bd["colors"] ?? null) ? array_values($bd["colors"]) : [];
+$normColors = [];
+foreach ($bcolors as $c) { $normColors[] = hexColor($c, "#CC0000"); }
+if (count($normColors) < 2) $normColors = ["#CC0000", "#FFFFFF"];
+$out["border"] = [
+  "enabled" => !empty($bd["enabled"]),
+  "width"   => clampInt($bd["width"] ?? 2, 1, 2, 2),
+  "colors"  => array_slice($normColors, 0, 6),
+  "stripe"  => clampInt($bd["stripe"] ?? 2, 1, 32, 2),
+  "animate" => !empty($bd["animate"]),
+  "speed"   => clampNum($bd["speed"] ?? 8, 0, 120, 8),
+];
+
 // ── Atomic write ──────────────────────────────────────────────────────
 $dir = dirname($configFile);
 if (!is_dir($dir))      respond(false, "Config directory missing: $dir");

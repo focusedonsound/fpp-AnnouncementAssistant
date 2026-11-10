@@ -44,6 +44,11 @@ function ttLoadConfig($path) {
       "mode" => "static_only", "idle_message" => "Merry Christmas!",
       "showtimes" => ["source" => "fpp", "custom" => ""],
     ],
+    "border" => [
+      "enabled" => false, "width" => 2,
+      "colors" => ["#CC0000", "#FFFFFF"],
+      "stripe" => 2, "animate" => true, "speed" => 8,
+    ],
   ];
   if (file_exists($path)) {
     $j = json_decode(@file_get_contents($path), true);
@@ -53,9 +58,11 @@ function ttLoadConfig($path) {
         if (array_key_exists($k, $j)) $cfg[$k] = $j[$k];
       }
       // Keyed blocks merge recursively (forward-compatible with new subkeys)...
-      foreach (["onoff", "environment", "fallback"] as $k) {
+      foreach (["onoff", "environment", "fallback", "border"] as $k) {
         if (is_array($j[$k] ?? null)) $cfg[$k] = array_replace_recursive($cfg[$k], $j[$k]);
       }
+      // colors is a list inside border: take saved verbatim if present.
+      if (is_array($j["border"]["colors"] ?? null)) $cfg["border"]["colors"] = $j["border"]["colors"];
       // ...but regions is a list: take the saved one verbatim.
       if (is_array($j["regions"] ?? null)) $cfg["regions"] = $j["regions"];
       return $cfg;
@@ -259,6 +266,55 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   </div>
 </div>
 
+<div class="tt-card">
+  <h5><i class="fas fa-fw fa-border-style"></i> Border
+    <span class="tt-muted" style="font-weight:normal;">&mdash; candy-cane edge around the whole sign</span>
+  </h5>
+  <div class="tt-grid">
+    <div class="tt-field">
+      <label>Border</label>
+      <select id="ttBorderEnabled" class="form-control form-control-sm">
+        <option value="0">Off</option>
+        <option value="1">On</option>
+      </select>
+    </div>
+    <div class="tt-field">
+      <label>Thickness</label>
+      <select id="ttBorderWidth" class="form-control form-control-sm">
+        <option value="1">1 pixel</option>
+        <option value="2">2 pixels</option>
+      </select>
+    </div>
+    <div class="tt-field">
+      <label>Color 1</label>
+      <input type="color" id="ttBorderColor1" class="form-control form-control-sm" style="height:2.2rem;">
+    </div>
+    <div class="tt-field">
+      <label>Color 2</label>
+      <input type="color" id="ttBorderColor2" class="form-control form-control-sm" style="height:2.2rem;">
+    </div>
+    <div class="tt-field">
+      <label>Stripe width (px)</label>
+      <input type="number" id="ttBorderStripe" class="form-control form-control-sm" min="1" max="12" step="1">
+    </div>
+    <div class="tt-field">
+      <label>Animate stripes</label>
+      <select id="ttBorderAnimate" class="form-control form-control-sm">
+        <option value="1">Yes (chase around edge)</option>
+        <option value="0">No (hold still)</option>
+      </select>
+    </div>
+    <div class="tt-field">
+      <label>Speed (px/sec)</label>
+      <input type="number" id="ttBorderSpeed" class="form-control form-control-sm" min="0" max="60" step="1">
+    </div>
+  </div>
+  <div class="tt-muted" style="margin-top:.3rem; font-size:.85em;">
+    Classic candy cane is deep red + white with a 2&#8209;pixel stripe. The border sits on the
+    outermost pixels of the sign, so give regions a little margin from the edges.
+  </div>
+</div>
+
 <div class="mb-4 d-flex gap-2 align-items-center">
   <button type="button" class="btn btn-primary" onclick="ttSave()">
     <i class="fas fa-fw fa-save"></i> Save Tune To Settings
@@ -427,6 +483,14 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     ttConfig.fallback.idle_message = el('ttIdleMsg').value;
     ttConfig.fallback.showtimes.source = el('ttShowtimesSrc').value;
     ttConfig.fallback.showtimes.custom = el('ttShowtimesCustom').value;
+
+    ttConfig.border.enabled = el('ttBorderEnabled').value === '1';
+    ttConfig.border.width   = parseInt(el('ttBorderWidth').value, 10) || 1;
+    ttConfig.border.colors  = [el('ttBorderColor1').value || '#CC0000',
+                               el('ttBorderColor2').value || '#FFFFFF'];
+    ttConfig.border.stripe  = parseInt(el('ttBorderStripe').value, 10) || 2;
+    ttConfig.border.animate = el('ttBorderAnimate').value === '1';
+    ttConfig.border.speed   = parseInt(el('ttBorderSpeed').value, 10) || 0;
   }
 
   // ── Region / message mutations (exposed to inline onclick) ──────────
@@ -490,6 +554,16 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     el('ttIdleMsg').value = ttConfig.fallback.idle_message;
     el('ttShowtimesSrc').value = ttConfig.fallback.showtimes.source;
     el('ttShowtimesCustom').value = ttConfig.fallback.showtimes.custom;
+
+    var bd = ttConfig.border || {};
+    var bc = bd.colors || [];
+    el('ttBorderEnabled').value = bd.enabled ? '1' : '0';
+    el('ttBorderWidth').value   = String(bd.width || 2);
+    el('ttBorderColor1').value  = bc[0] || '#CC0000';
+    el('ttBorderColor2').value  = bc[1] || '#FFFFFF';
+    el('ttBorderStripe').value  = (bd.stripe != null ? bd.stripe : 2);
+    el('ttBorderAnimate').value = bd.animate ? '1' : '0';
+    el('ttBorderSpeed').value   = (bd.speed != null ? bd.speed : 8);
   }
 
   function ttFillModelSelect() {
@@ -533,73 +607,99 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     return pane && pane.style.display !== 'none' && !document.hidden;
   }
 
-  var ttOffCanvas = null;   // offscreen buffer to sample the rendered pixels
-  var ttLastImg = null;     // last preview frame, so style changes redraw instantly
+  // ── Animated LED preview ────────────────────────────────────────────
+  // The endpoint returns a sprite sheet of N frames stacked vertically. We read
+  // its pixels once, then play the frames on the canvas as the chosen display
+  // (round / square LEDs, or solid pixels), looping. Re-fetched periodically so
+  // the clock, song, weather and current edits stay live.
+  var PV_FRAMES = 45, PV_FPS = 15;
+  var ttOffCanvas = null;
+  var ttAnim = null;              // { data, fw, fh, n }
+  var ttFrameI = 0, ttLastTs = 0;
 
-  // Draw the rendered frame as the chosen display simulates it: a grid of round
-  // or square LEDs (P5/P10 panels) with dark gaps, or solid pixels (TV/projector).
-  function ttDrawPreview(im) {
-    var pw = im.width, ph = im.height;
-    if (!pw || !ph) return;
-    var off = ttOffCanvas || (ttOffCanvas = document.createElement('canvas'));
-    off.width = pw; off.height = ph;
-    var og = off.getContext('2d');
-    og.clearRect(0, 0, pw, ph);
-    og.drawImage(im, 0, 0);
-    var data = null;
-    try { data = og.getImageData(0, 0, pw, ph).data; } catch (e) { data = null; }
-
+  function ttDrawFrame() {
+    if (!ttAnim) return;
+    var fw = ttAnim.fw, fh = ttAnim.fh, data = ttAnim.data;
     var style = (el('ttPreviewStyle') && el('ttPreviewStyle').value) || 'led-round';
-    var cell = Math.max(3, Math.min(14, Math.floor(620 / pw)));
+    var cell = Math.max(3, Math.min(14, Math.floor(620 / fw)));
     var cv = el('ttPreviewCanvas');
-    cv.width = pw * cell; cv.height = ph * cell;
-    cv.style.width = Math.min(pw * cell, 640) + 'px';
+    if (cv.width !== fw * cell) {
+      cv.width = fw * cell; cv.height = fh * cell;
+      cv.style.width = Math.min(fw * cell, 640) + 'px';
+    }
     var g = cv.getContext('2d');
-
-    if (!data || style === 'solid') {
-      g.imageSmoothingEnabled = false;
-      g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
-      g.drawImage(im, 0, 0, pw, ph, 0, 0, cv.width, cv.height);
-    } else {
-      var round = (style !== 'led-square');
-      g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, cv.width, cv.height);
-      var r = cell * 0.42;
-      var pad = Math.max(1, Math.round(cell * 0.12));
-      for (var y = 0; y < ph; y++) {
-        for (var x = 0; x < pw; x++) {
-          var i = (y * pw + x) * 4, R = data[i], G = data[i + 1], B = data[i + 2];
+    var base = ttFrameI * fh;
+    var solid = (style === 'solid'), round = (style === 'led-round');
+    g.fillStyle = solid ? '#000' : '#0b0b0b';
+    g.fillRect(0, 0, cv.width, cv.height);
+    var r = cell * 0.42, pad = Math.max(1, Math.round(cell * 0.12));
+    for (var y = 0; y < fh; y++) {
+      for (var x = 0; x < fw; x++) {
+        var i = (((base + y) * fw) + x) * 4;
+        var R = data[i], G = data[i + 1], B = data[i + 2];
+        var cx = x * cell, cy = y * cell;
+        if (solid) {
+          g.fillStyle = 'rgb(' + R + ',' + G + ',' + B + ')';
+          g.fillRect(cx, cy, cell, cell);
+        } else {
           g.fillStyle = (R + G + B) >= 24 ? ('rgb(' + R + ',' + G + ',' + B + ')') : '#161616';
-          var cx = x * cell, cy = y * cell;
-          if (round) {
-            g.beginPath(); g.arc(cx + cell / 2, cy + cell / 2, r, 0, 6.2832); g.fill();
-          } else {
-            g.fillRect(cx + pad, cy + pad, cell - 2 * pad, cell - 2 * pad);
-          }
+          if (round) { g.beginPath(); g.arc(cx + cell / 2, cy + cell / 2, r, 0, 6.2832); g.fill(); }
+          else { g.fillRect(cx + pad, cy + pad, cell - 2 * pad, cell - 2 * pad); }
         }
       }
     }
-    el('ttPreviewNote').textContent = pw + '×' + ph + ' — live preview';
+  }
+
+  function ttAnimTick(ts) {
+    if (ttAnim && ttAnim.n > 1 && ttTabVisible()) {
+      if (!ttLastTs) ttLastTs = ts;
+      if (ts - ttLastTs >= 1000 / PV_FPS) {
+        ttFrameI = (ttFrameI + 1) % ttAnim.n;
+        ttLastTs = ts;
+        ttDrawFrame();
+      }
+    }
+    requestAnimationFrame(ttAnimTick);
   }
 
   function ttRenderPreview() {
     if (ttPreviewBusy || !ttTabVisible()) return;
     ttPreviewBusy = true;
     ttSyncFromDom();
-    fetch(TT_BASE + 'tuneto_preview.php', {
+    var hdr = {};
+    fetch(TT_BASE + 'tuneto_preview.php&frames=' + PV_FRAMES + '&fps=' + PV_FPS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(ttConfig),
       cache: 'no-store'
     }).then(function (res) {
       var ct = res.headers.get('Content-Type') || '';
+      hdr.n  = parseInt(res.headers.get('X-TT-Frames') || '1', 10) || 1;
+      hdr.fw = parseInt(res.headers.get('X-TT-FW') || '0', 10) || 0;
+      hdr.fh = parseInt(res.headers.get('X-TT-FH') || '0', 10) || 0;
       if (ct.indexOf('image') === 0) return res.blob();
       return res.text().then(function (t) { throw new Error(t); });
     }).then(function (blob) {
       var url = URL.createObjectURL(blob);
       var im = new Image();
       im.onload = function () {
-        ttLastImg = im;
-        ttDrawPreview(im);
+        var n  = hdr.n || 1;
+        var fw = hdr.fw || im.width;
+        var fh = hdr.fh || Math.round(im.height / n);
+        var off = ttOffCanvas || (ttOffCanvas = document.createElement('canvas'));
+        off.width = im.width; off.height = im.height;
+        var og = off.getContext('2d');
+        og.clearRect(0, 0, im.width, im.height);
+        og.drawImage(im, 0, 0);
+        var data = null;
+        try { data = og.getImageData(0, 0, im.width, im.height).data; } catch (e) { data = null; }
+        if (data) {
+          ttAnim = { data: data, fw: fw, fh: fh, n: n };
+          if (ttFrameI >= n) ttFrameI = 0;
+          ttDrawFrame();
+          el('ttPreviewNote').textContent =
+            fw + '×' + fh + ' — live preview' + (n > 1 ? ' (animated)' : '');
+        }
         URL.revokeObjectURL(url);
         ttPreviewBusy = false;
       };
@@ -613,10 +713,11 @@ $ttCfg = ttLoadConfig($ttConfigFile);
 
   (function () {
     var sel = el('ttPreviewStyle');
-    if (sel) sel.addEventListener('change', function () { if (ttLastImg) ttDrawPreview(ttLastImg); });
+    if (sel) sel.addEventListener('change', ttDrawFrame);
   })();
 
-  setInterval(ttRenderPreview, 1500);
+  requestAnimationFrame(ttAnimTick);
+  setInterval(ttRenderPreview, 3000);
   ttRenderPreview();
 
   // ── Token click-to-copy ─────────────────────────────────────────────

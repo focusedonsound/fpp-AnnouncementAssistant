@@ -37,11 +37,18 @@ if ($raw !== false && trim($raw) !== '' && is_array(json_decode($raw, true))) {
   $cfg_arg = $saved_cfg;
 }
 
+// Animation: the sprite sheet stacks N frames vertically; the browser plays
+// them as a loop. frames=1 keeps the single-still behavior.
+$frames = isset($_GET['frames']) ? max(1, min(120, (int)$_GET['frames'])) : 1;
+$fps    = isset($_GET['fps'])    ? max(1, min(30,  (int)$_GET['fps']))    : 15;
+
 $out_png = $state_dir . '/tuneto_preview.png';
 @unlink($out_png);
 
 $cmd = 'python3 ' . escapeshellarg($renderer)
      . ' --preview ' . escapeshellarg($out_png)
+     . ' --frames '  . $frames
+     . ' --fps '     . $fps
      . ' --config '  . escapeshellarg($cfg_arg) . ' 2>&1';
 $output = [];
 $rc = 0;
@@ -51,6 +58,13 @@ if ($rc !== 0 || !file_exists($out_png)) {
   fail('Preview render failed. ' . implode(' | ', array_slice($output, -5)));
 }
 
+// Tell the browser how to slice the sprite sheet (one frame = FW x FH).
+$info = @getimagesize($out_png);
+if ($info) {
+  header('X-TT-Frames: ' . $frames);
+  header('X-TT-FW: ' . (int)$info[0]);
+  header('X-TT-FH: ' . (int)floor($info[1] / $frames));
+}
 header('Content-Type: image/png');
 header('Content-Length: ' . filesize($out_png));
 readfile($out_png);
