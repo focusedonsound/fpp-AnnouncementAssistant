@@ -33,7 +33,7 @@ function ttLoadConfig($path) {
       [
         "name" => "Now Playing",
         "rect" => ["x" => 0, "y" => 8, "w" => 64, "h" => 24],
-        "font" => "", "size" => 10, "color" => "#FFFFFF", "align" => "left",
+        "font" => "", "size" => 8, "color" => "#FFFFFF", "align" => "left",
         "messages" => [
           ["template" => "{title}",  "effect" => "hscroll", "speed" => 20, "dwell_sec" => 5],
           ["template" => "{artist}", "effect" => "hscroll", "speed" => 20, "dwell_sec" => 5],
@@ -93,11 +93,22 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   <h5><i class="fas fa-fw fa-eye"></i> Live Preview
     <span class="tt-muted" style="font-weight:normal;">&mdash; reflects your current edits; clock / song / weather refresh automatically</span>
   </h5>
+  <div style="margin-bottom:.5rem;">
+    <label class="tt-muted" style="margin-right:.4rem;">Display</label>
+    <select id="ttPreviewStyle" class="form-control form-control-sm" style="width:auto; display:inline-block;">
+      <option value="led-round" selected>LED matrix (round) &mdash; P5 / P10</option>
+      <option value="led-square">LED matrix (square)</option>
+      <option value="solid">Solid pixels &mdash; TV / projector</option>
+    </select>
+  </div>
   <div style="background:#000; border:1px solid #333; border-radius:.3rem; padding:8px; display:inline-block; max-width:100%;">
     <canvas id="ttPreviewCanvas" width="64" height="32"
-            style="image-rendering:pixelated; image-rendering:crisp-edges; display:block; max-width:100%; height:auto; width:512px;"></canvas>
+            style="image-rendering:pixelated; image-rendering:crisp-edges; display:block; max-width:100%; height:auto;"></canvas>
   </div>
   <div id="ttPreviewNote" class="tt-muted" style="margin-top:.4rem;">Rendering preview&hellip;</div>
+  <div class="tt-muted" style="margin-top:.2rem; font-size:.85em;">
+    Tip: the bundled pixel fonts look sharpest at sizes 8, 16 or 24.
+  </div>
 </div>
 
 <!-- ── Sign & On/Off ────────────────────────────────────────────────── -->
@@ -285,12 +296,19 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   }
 
   // ── Render regions from ttConfig ────────────────────────────────────
+  function prettyFont(n) { return n.replace(/-Regular$/, '').replace(/-/g, ' '); }
+
   function fontOptions(selected) {
-    var html = '<option value="">(default)</option>';
+    var bundled = '', system = '';
     for (var i = 0; i < ttFonts.length; i++) {
       var n = ttFonts[i].name;
-      html += '<option value="' + esc(n) + '"' + (n === selected ? ' selected' : '') + '>' + esc(n) + '</option>';
+      var opt = '<option value="' + esc(n) + '"' + (n === selected ? ' selected' : '') +
+                '>' + esc(prettyFont(n)) + '</option>';
+      if (ttFonts[i].bundled) bundled += opt; else system += opt;
     }
+    var html = '<option value="">(default — pixel font)</option>';
+    if (bundled) html += '<optgroup label="Pixel fonts — best for panels">' + bundled + '</optgroup>';
+    if (system)  html += '<optgroup label="System fonts">' + system + '</optgroup>';
     return html;
   }
 
@@ -514,6 +532,54 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     return pane && pane.style.display !== 'none' && !document.hidden;
   }
 
+  var ttOffCanvas = null;   // offscreen buffer to sample the rendered pixels
+  var ttLastImg = null;     // last preview frame, so style changes redraw instantly
+
+  // Draw the rendered frame as the chosen display simulates it: a grid of round
+  // or square LEDs (P5/P10 panels) with dark gaps, or solid pixels (TV/projector).
+  function ttDrawPreview(im) {
+    var pw = im.width, ph = im.height;
+    if (!pw || !ph) return;
+    var off = ttOffCanvas || (ttOffCanvas = document.createElement('canvas'));
+    off.width = pw; off.height = ph;
+    var og = off.getContext('2d');
+    og.clearRect(0, 0, pw, ph);
+    og.drawImage(im, 0, 0);
+    var data = null;
+    try { data = og.getImageData(0, 0, pw, ph).data; } catch (e) { data = null; }
+
+    var style = (el('ttPreviewStyle') && el('ttPreviewStyle').value) || 'led-round';
+    var cell = Math.max(3, Math.min(14, Math.floor(620 / pw)));
+    var cv = el('ttPreviewCanvas');
+    cv.width = pw * cell; cv.height = ph * cell;
+    cv.style.width = Math.min(pw * cell, 640) + 'px';
+    var g = cv.getContext('2d');
+
+    if (!data || style === 'solid') {
+      g.imageSmoothingEnabled = false;
+      g.fillStyle = '#000'; g.fillRect(0, 0, cv.width, cv.height);
+      g.drawImage(im, 0, 0, pw, ph, 0, 0, cv.width, cv.height);
+    } else {
+      var round = (style !== 'led-square');
+      g.fillStyle = '#0b0b0b'; g.fillRect(0, 0, cv.width, cv.height);
+      var r = cell * 0.42;
+      var pad = Math.max(1, Math.round(cell * 0.12));
+      for (var y = 0; y < ph; y++) {
+        for (var x = 0; x < pw; x++) {
+          var i = (y * pw + x) * 4, R = data[i], G = data[i + 1], B = data[i + 2];
+          g.fillStyle = (R + G + B) >= 24 ? ('rgb(' + R + ',' + G + ',' + B + ')') : '#161616';
+          var cx = x * cell, cy = y * cell;
+          if (round) {
+            g.beginPath(); g.arc(cx + cell / 2, cy + cell / 2, r, 0, 6.2832); g.fill();
+          } else {
+            g.fillRect(cx + pad, cy + pad, cell - 2 * pad, cell - 2 * pad);
+          }
+        }
+      }
+    }
+    el('ttPreviewNote').textContent = pw + '×' + ph + ' — live preview';
+  }
+
   function ttRenderPreview() {
     if (ttPreviewBusy || !ttTabVisible()) return;
     ttPreviewBusy = true;
@@ -531,24 +597,23 @@ $ttCfg = ttLoadConfig($ttConfigFile);
       var url = URL.createObjectURL(blob);
       var im = new Image();
       im.onload = function () {
-        var cv = el('ttPreviewCanvas');
-        cv.width = im.width; cv.height = im.height;
-        cv.style.width = Math.min(im.width * 8, 640) + 'px';
-        var g = cv.getContext('2d');
-        g.imageSmoothingEnabled = false;
-        g.clearRect(0, 0, cv.width, cv.height);
-        g.drawImage(im, 0, 0);
+        ttLastImg = im;
+        ttDrawPreview(im);
         URL.revokeObjectURL(url);
-        el('ttPreviewNote').textContent = im.width + '×' + im.height + ' — live preview';
         ttPreviewBusy = false;
       };
-      im.onerror = function () { ttPreviewBusy = false; };
+      im.onerror = function () { URL.revokeObjectURL(url); ttPreviewBusy = false; };
       im.src = url;
     }).catch(function (e) {
       el('ttPreviewNote').textContent = 'Preview unavailable: ' + String(e.message || e).slice(0, 180);
       ttPreviewBusy = false;
     });
   }
+
+  (function () {
+    var sel = el('ttPreviewStyle');
+    if (sel) sel.addEventListener('change', function () { if (ttLastImg) ttDrawPreview(ttLastImg); });
+  })();
 
   setInterval(ttRenderPreview, 1500);
   ttRenderPreview();

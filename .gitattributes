@@ -1,5 +1,9 @@
 * text=auto eol=lf
 
+# Bundled fonts are binary — never apply EOL conversion.
+*.ttf binary
+*.otf binary
+
 *.sh text eol=lf
 *.php text eol=lf
 *.json text eol=lf

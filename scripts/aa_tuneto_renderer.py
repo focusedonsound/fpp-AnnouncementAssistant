@@ -27,9 +27,14 @@ from PIL import Image, ImageDraw, ImageFont  # noqa: E402
 
 CONFIG_FILE = "/home/fpp/media/config/tuneto.json"
 FPP_API = "http://127.0.0.1/api"
-FONT_DIRS = ["/usr/share/fonts", "/usr/local/share/fonts",
+# The plugin bundles pixel/bitmap fonts (fonts/ next to scripts/) designed for
+# LED matrices; scan that first so they're always available and win name ties.
+PLUGIN_FONTS_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fonts")
+FONT_DIRS = [PLUGIN_FONTS_DIR, "/usr/share/fonts", "/usr/local/share/fonts",
              "/opt/fpp/www/fonts", "/home/fpp/media/fonts"]
-DEFAULT_FONT_PREFS = ["FreeSans", "DejaVuSans", "FreeMono", "LiberationSans"]
+# Prefer a bundled pixel font so unconfigured text still renders crisply on a panel.
+DEFAULT_FONT_PREFS = ["PressStart2P-Regular", "Silkscreen-Regular",
+                      "FreeSans", "DejaVuSans", "FreeMono", "LiberationSans"]
 
 VERBOSE = False
 

@@ -42,7 +42,11 @@ function ttOverlayModels() {
 // Scan the usual TrueType/OpenType locations. Returns de-duplicated
 // display names (file basename without extension) with their path.
 function ttFonts() {
+  // The plugin's own fonts/ dir ships pixel fonts tuned for LED matrices; list
+  // it first and flag those so the UI can surface them as recommended.
+  $bundledDir = dirname(__DIR__) . '/fonts';
   $dirs = [
+    $bundledDir,
     '/usr/share/fonts',
     '/usr/local/share/fonts',
     '/opt/fpp/www/fonts',
@@ -65,10 +69,14 @@ function ttFonts() {
       $name = preg_replace('/\.(ttf|otf)$/i', '', $f->getFilename());
       if (isset($seen[$name])) continue;
       $seen[$name] = true;
-      $out[] = ['name' => $name, 'path' => $p];
+      $out[] = ['name' => $name, 'path' => $p, 'bundled' => ($base === $bundledDir)];
     }
   }
-  usort($out, function ($a, $b) { return strcasecmp($a['name'], $b['name']); });
+  // Bundled pixel fonts first, then everything else alphabetically.
+  usort($out, function ($a, $b) {
+    if ($a['bundled'] !== $b['bundled']) return $a['bundled'] ? -1 : 1;
+    return strcasecmp($a['name'], $b['name']);
+  });
   return $out;
 }
 
