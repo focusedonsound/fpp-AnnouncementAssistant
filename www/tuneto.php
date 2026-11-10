@@ -224,11 +224,24 @@ $ttCfg = ttLoadConfig($ttConfigFile);
 
 <!-- ── Regions ──────────────────────────────────────────────────────── -->
 <div class="d-flex justify-content-between align-items-center mb-2">
-  <h4 class="mb-0"><i class="fas fa-fw fa-th-large"></i> Regions</h4>
-  <button type="button" class="btn btn-sm btn-secondary" onclick="ttAddRegion()">
-    <i class="fas fa-fw fa-plus"></i> Add Region
-  </button>
+  <div>
+    <h4 class="mb-0"><i class="fas fa-fw fa-th-large"></i> Regions</h4>
+    <small id="ttPanelInfo" class="tt-muted"></small>
+  </div>
+  <div class="d-flex" style="gap:.4rem;">
+    <button type="button" class="btn btn-sm btn-outline-secondary" title="Lay the regions out to fill the whole panel" onclick="ttFitAllRegions()">
+      <i class="fas fa-fw fa-expand"></i> Fit to panel
+    </button>
+    <button type="button" class="btn btn-sm btn-secondary" onclick="ttAddRegion()">
+      <i class="fas fa-fw fa-plus"></i> Add Region
+    </button>
+  </div>
 </div>
+<p class="tt-muted" style="font-size:.85em; margin-top:-.3rem;">
+  A region's X/Y/Width/Height set <em>where</em> text appears on the panel. Text shows only
+  inside its region &mdash; size regions to your panel (use <strong>Fit to panel</strong>) so
+  text isn't stuck in a corner.
+</p>
 <div id="ttRegions"></div>
 
 <!-- ── No-media fallback ────────────────────────────────────────────── -->
@@ -398,7 +411,10 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     '<div class="tt-region" data-ri="' + ri + '">' +
       '<div class="tt-region-head">' +
         '<input type="text" class="form-control form-control-sm tt-r-name" style="max-width:240px;" value="' + esc(r.name) + '">' +
-        '<button type="button" class="btn btn-sm btn-outline-danger" onclick="ttDelRegion(' + ri + ')"><i class="fas fa-fw fa-trash"></i> Remove Region</button>' +
+        '<span>' +
+          '<button type="button" class="btn btn-sm btn-outline-secondary" style="margin-right:.4rem;" title="Set X=0 and width to the full panel" onclick="ttFitRegionWidth(' + ri + ')"><i class="fas fa-fw fa-arrows-alt-h"></i> Fit width</button>' +
+          '<button type="button" class="btn btn-sm btn-outline-danger" onclick="ttDelRegion(' + ri + ')"><i class="fas fa-fw fa-trash"></i> Remove Region</button>' +
+        '</span>' +
       '</div>' +
       '<div class="tt-grid">' +
         '<div class="tt-field"><label>X</label><input type="number" min="0" class="form-control form-control-sm tt-r-x" value="' + esc(rect.x) + '"></div>' +
@@ -493,13 +509,73 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     ttConfig.border.speed   = parseInt(el('ttBorderSpeed').value, 10) || 0;
   }
 
+  // ── Panel geometry helpers ──────────────────────────────────────────
+  function ttPanel() {
+    var name = ttConfig.overlay_model, w = 0, h = 0;
+    for (var i = 0; i < ttModels.length; i++) {
+      if (ttModels[i].name === name) { w = ttModels[i].width || 0; h = ttModels[i].height || 0; }
+    }
+    return { name: name, w: w, h: h };
+  }
+
+  function ttBorderInset() {
+    var b = ttConfig.border || {};
+    return b.enabled ? Math.max(1, Math.min(2, parseInt(b.width, 10) || 1)) : 0;
+  }
+
+  function ttUpdatePanelInfo() {
+    var e = el('ttPanelInfo'); if (!e) return;
+    var p = ttPanel();
+    if (p.name && p.w && p.h) e.textContent = 'Panel: ' + p.name + ' — ' + p.w + ' × ' + p.h + ' px';
+    else if (p.name)          e.textContent = 'Panel: ' + p.name + ' (size unknown — is the model valid?)';
+    else                      e.textContent = 'No overlay model selected — pick one in Sign settings above.';
+  }
+
+  window.ttFitRegionWidth = function (ri) {
+    ttSyncFromDom();
+    var p = ttPanel();
+    if (!p.w) { ttNotify('Pick a valid overlay model first', true); return; }
+    var ins = ttBorderInset();
+    ttConfig.regions[ri].rect.x = ins;
+    ttConfig.regions[ri].rect.w = Math.max(1, p.w - 2 * ins);
+    ttRenderRegions();
+  };
+
+  window.ttFitAllRegions = function () {
+    ttSyncFromDom();
+    var p = ttPanel();
+    if (!p.w || !p.h) { ttNotify('Pick a valid overlay model first', true); return; }
+    var rs = ttConfig.regions, n = rs.length;
+    if (!n) { ttNotify('Add a region first', true); return; }
+    var ins = ttBorderInset();
+    var top = ins, usableH = Math.max(1, p.h - 2 * ins);
+    var band = Math.max(1, Math.floor(usableH / n));
+    for (var i = 0; i < n; i++) {
+      rs[i].rect.x = ins;
+      rs[i].rect.w = Math.max(1, p.w - 2 * ins);
+      rs[i].rect.y = top + i * band;
+      rs[i].rect.h = (i === n - 1) ? (top + usableH - (top + i * band)) : band;
+    }
+    ttRenderRegions();
+    ttNotify('Regions fitted to ' + p.w + '×' + p.h + (ins ? ' (inset ' + ins + 'px for border)' : ''), false);
+  };
+
   // ── Region / message mutations (exposed to inline onclick) ──────────
   window.ttAddRegion = function () {
     ttSyncFromDom();
+    var p = ttPanel();
+    var ins = ttBorderInset();
+    var w = p.w ? Math.max(1, p.w - 2 * ins) : 64;
+    // Stack the new region directly below the existing ones.
+    var y = ins;
+    for (var i = 0; i < ttConfig.regions.length; i++) {
+      var rr = ttConfig.regions[i].rect || {};
+      y = Math.max(y, (rr.y || 0) + (rr.h || 0));
+    }
     ttConfig.regions.push({
       name: 'Region ' + (ttConfig.regions.length + 1),
-      rect: { x: 0, y: 0, w: 64, h: 8 },
-      font: '', size: 10, color: '#FFFFFF', align: 'center',
+      rect: { x: ins, y: y, w: w, h: 10 },
+      font: '', size: 8, color: '#FFFFFF', align: 'center',
       messages: [{ template: '', effect: 'static', speed: 20, dwell_sec: 5 }]
     });
     ttRenderRegions();
@@ -733,12 +809,22 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   ['ttMode','ttEnvSource','ttSensorType','ttFallbackMode'].forEach(function (id) {
     el(id).addEventListener('change', ttUpdateVisibility);
   });
+  // Keep the panel-size readout current when the overlay model changes.
+  el('ttModel').addEventListener('change', function () {
+    ttConfig.overlay_model = el('ttModel').value;
+    ttUpdatePanelInfo();
+  });
+  // Border on/off or thickness changes the fit inset — refresh the readout.
+  ['ttBorderEnabled','ttBorderWidth'].forEach(function (id) {
+    var e = el(id); if (e) e.addEventListener('change', function () { ttSyncFromDom(); ttUpdatePanelInfo(); });
+  });
 
   // ── Init ────────────────────────────────────────────────────────────
   ttFillControls();
   ttFillModelSelect();
   ttRenderRegions();
   ttUpdateVisibility();
+  ttUpdatePanelInfo();
 
   // Load overlay models + fonts, then refresh the selects that depend on them.
   fetch(TT_BASE + 'tuneto_models.php', { cache: 'no-store' })
@@ -748,6 +834,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
         ttModels = j.models || [];
         ttFonts  = j.fonts || [];
         ttFillModelSelect();
+        ttUpdatePanelInfo(); // now that model dims are known
         ttSyncFromDom();   // capture current edits
         ttRenderRegions(); // re-render so font dropdowns populate
       }
