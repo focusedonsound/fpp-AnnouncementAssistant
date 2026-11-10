@@ -373,7 +373,7 @@ def draw_border(frame, cfg, anim_t):
     return animate
 
 
-def render_scene(cfg, ctx, status, width, height, states, dt, anim_t):
+def render_scene(cfg, ctx, status, width, height, states, dt, anim_t, show_host="127.0.0.1"):
     """Produce one full-panel frame (regions or no-media fallback) plus the
     candy-cane border. Returns (Image, animating). The 'blank' fallback yields a
     black frame here (the live daemon instead releases the model for it)."""
@@ -385,7 +385,7 @@ def render_scene(cfg, ctx, status, width, height, states, dt, anim_t):
         pass  # black; real panel shows the running sequence
     elif (not media_playing) and fb_mode != "static_only":
         fstate = states.setdefault("_fallback", RegionState())
-        out = render_region(build_fallback_region(cfg, fb_mode, status, width, height),
+        out = render_region(build_fallback_region(cfg, fb_mode, status, width, height, show_host),
                             fstate, ctx, dt)
         if out:
             fimg, animating = out
@@ -397,7 +397,7 @@ def render_scene(cfg, ctx, status, width, height, states, dt, anim_t):
 
 
 # ── No-media fallback ────────────────────────────────────────────────────────
-def build_fallback_region(cfg, mode, status, width, height):
+def build_fallback_region(cfg, mode, status, width, height, show_host="127.0.0.1"):
     """A synthetic full-panel region for the active no-media fallback mode,
     reusing the normal region renderer (rotation/effects/skip all apply)."""
     fb = cfg.get("fallback", {}) or {}
@@ -428,7 +428,7 @@ def build_fallback_region(cfg, mode, status, width, height):
         custom = st.get("custom", "")
         msgs = []
         if source in ("fpp", "both"):
-            txt = src.fpp_showtimes(status)
+            txt = src.fpp_showtimes(status, show_host)
             if txt:
                 msgs.append({"template": txt, "effect": "hscroll", "speed": 16, "dwell_sec": 6})
         if source in ("custom", "both") and custom:
@@ -485,23 +485,24 @@ def main():
         # fallback so the preview matches real behavior. With --frames N it
         # renders N animation frames (scroll/wipe/border motion) stacked
         # vertically into one sprite sheet the browser plays as a loop.
+        show_host = cfg.get("show_host") or "127.0.0.1"
         geom = model_geometry(model)
         width, height = geom if geom[0] > 0 and geom[1] > 0 else (64, 32)
-        status = src.fpp_status()
+        status = src.fpp_status(show_host)
         weather = src.EnvironmentPoller().poll(cfg.get("environment", {}))
-        ctx = src.build_context(status, weather)
+        ctx = src.build_context(status, weather, show_host)
         n = max(1, int(args.frames))
         fps = max(1, int(args.fps))
         states = {}
         try:
             if n <= 1:
-                frame, _ = render_scene(cfg, ctx, status, width, height, states, 0.0, 0.0)
+                frame, _ = render_scene(cfg, ctx, status, width, height, states, 0.0, 0.0, show_host)
                 frame.save(args.preview)
             else:
                 sheet = Image.new("RGB", (width, height * n), (0, 0, 0))
                 for f in range(n):
                     fr, _ = render_scene(cfg, ctx, status, width, height, states,
-                                         1.0 / fps, f / float(fps))
+                                         1.0 / fps, f / float(fps), show_host)
                     sheet.paste(fr, (0, f * height))
                 sheet.save(args.preview)
         except Exception as e:
@@ -540,9 +541,11 @@ def main():
         except OSError:
             pass
 
+        show_host = cfg.get("show_host") or "127.0.0.1"
+
         # Refresh FPP status ~1/s.
         if now - status_check >= 1.0:
-            status = src.fpp_status()
+            status = src.fpp_status(show_host)
             status_check = now
 
         on = sign_is_on(cfg, status)
@@ -571,7 +574,7 @@ def main():
             continue
 
         weather = env.poll(cfg.get("environment", {}))
-        ctx = src.build_context(status, weather)
+        ctx = src.build_context(status, weather, show_host)
 
         media_playing = bool(status.get("media_playing")) or bool(status.get("current_song"))
         fb_mode = (cfg.get("fallback", {}) or {}).get("mode", "static_only")
@@ -589,7 +592,7 @@ def main():
             continue
 
         if use_fallback:
-            fregion = build_fallback_region(cfg, fb_mode, status, width, height)
+            fregion = build_fallback_region(cfg, fb_mode, status, width, height, show_host)
             fstate = states.setdefault("_fallback", RegionState())
             out = render_region(fregion, fstate, ctx, dt)
             frame = Image.new("RGB", (width, height), (0, 0, 0))

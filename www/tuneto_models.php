@@ -80,8 +80,38 @@ function ttFonts() {
   return $out;
 }
 
+// ── Discovered FPP systems (for the "show player" host picker) ─────────
+// Returns the FPP instances this box knows about via multisync, so the user
+// can point Tune To at the player that runs the audio without typing an IP.
+function ttSystems() {
+  $out = [];
+  $raw = @file_get_contents('http://127.0.0.1/api/fppd/multiSyncSystems');
+  if ($raw === false) return $out;
+  $j = json_decode($raw, true);
+  $list = (is_array($j) && isset($j['systems']) && is_array($j['systems'])) ? $j['systems'] : null;
+  if (!is_array($list)) return $out;
+  foreach ($list as $s) {
+    if (!is_array($s)) continue;
+    $addr = trim((string)($s['address'] ?? ''));
+    if ($addr === '') continue;
+    $out[] = [
+      'address'  => $addr,
+      'hostname' => (string)($s['hostname'] ?? $addr),
+      'mode'     => (string)($s['fppModeString'] ?? ''),
+      'local'    => !empty($s['local']),
+    ];
+  }
+  // Local box first, then by hostname.
+  usort($out, function ($a, $b) {
+    if ($a['local'] !== $b['local']) return $a['local'] ? -1 : 1;
+    return strcasecmp($a['hostname'], $b['hostname']);
+  });
+  return $out;
+}
+
 echo json_encode([
-  'status' => 'OK',
-  'models' => ttOverlayModels(),
-  'fonts'  => ttFonts(),
+  'status'  => 'OK',
+  'models'  => ttOverlayModels(),
+  'fonts'   => ttFonts(),
+  'systems' => ttSystems(),
 ]);

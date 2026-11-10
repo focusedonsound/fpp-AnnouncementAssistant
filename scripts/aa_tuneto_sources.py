@@ -14,10 +14,19 @@ import os
 import re
 import subprocess
 import time
+import urllib.parse
 import urllib.request
 
 FPP_API = "http://127.0.0.1/api"
 MEDIA_ROOTS = ["/home/fpp/media/music", "/home/fpp/media"]
+
+
+def _api(host):
+    """Base API URL for an FPP host. Empty/None -> local."""
+    host = (host or "").strip() or "127.0.0.1"
+    if "://" in host:                 # tolerate a full URL
+        return host.rstrip("/") + "/api"
+    return "http://" + host + "/api"
 
 _TOKEN_RE = re.compile(r"\{([a-z_]+)\}")
 
@@ -39,9 +48,14 @@ def _http_json(url, timeout=3):
 
 
 # ── FPP status ─────────────────────────────────────────────────────────────
-def fpp_status():
-    """Return the fppd status dict, or {} on failure."""
-    d = _http_json(FPP_API + "/fppd/status")
+def fpp_status(host="127.0.0.1"):
+    """Return the fppd status dict from the show host, or {} on failure.
+
+    host is the FPP that runs the show / plays the audio. When AA is installed
+    on the matrix controller (best practice) but the audio plays on a separate
+    player, point this at the player so song/playback/schedule come from there.
+    """
+    d = _http_json(_api(host) + "/fppd/status")
     return d if isinstance(d, dict) else {}
 
 
@@ -91,46 +105,84 @@ def _read_tags_mutagen(path):
         return None
 
 
+def _tags_from_ffprobe(data):
+    """Map an ffprobe/meta JSON dict (format.tags, falling back to a stream's
+    tags) to our token names. Shared by the local ffprobe and the remote
+    /api/media/<name>/meta endpoint, which returns the same shape."""
+    if not isinstance(data, dict):
+        return None
+    tags = (data.get("format", {}) or {}).get("tags", {}) or {}
+    if not tags:
+        for s in (data.get("streams") or []):
+            if isinstance(s, dict) and s.get("tags"):
+                tags = s["tags"]
+                break
+    low = {str(k).lower(): v for k, v in tags.items()}
+    return {
+        "title": low.get("title", ""), "artist": low.get("artist", ""),
+        "album": low.get("album", ""), "year": low.get("date", low.get("year", "")),
+        "genre": low.get("genre", ""), "track": low.get("track", ""),
+        "albumartist": low.get("album_artist", low.get("albumartist", "")),
+        "comment": low.get("comment", ""),
+    }
+
+
 def _read_tags_ffprobe(path):
     try:
         out = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", path],
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", "-show_streams", path],
             capture_output=True, text=True, timeout=5,
         )
-        tags = (json.loads(out.stdout).get("format", {}) or {}).get("tags", {}) or {}
-        low = {k.lower(): v for k, v in tags.items()}
-        return {
-            "title": low.get("title", ""), "artist": low.get("artist", ""),
-            "album": low.get("album", ""), "year": low.get("date", low.get("year", "")),
-            "genre": low.get("genre", ""), "track": low.get("track", ""),
-            "albumartist": low.get("album_artist", ""), "comment": low.get("comment", ""),
-        }
+        return _tags_from_ffprobe(json.loads(out.stdout))
     except Exception:
         return None
 
 
-def media_tags(filename):
-    """ID3/metadata for the given media filename, cached by path+mtime."""
-    path = _find_media(filename)
-    if not path:
-        return {}
+def _read_tags_remote(filename, host):
+    """Fetch ID3/metadata from the show host's media API when the file isn't
+    local (e.g. AA on the matrix controller, audio on the player)."""
     try:
-        mtime = os.path.getmtime(path)
+        name = urllib.parse.quote(os.path.basename(filename), safe="")
+        return _tags_from_ffprobe(_http_json(_api(host) + "/media/" + name + "/meta", timeout=4))
+    except Exception:
+        return None
+
+
+def media_tags(filename, host="127.0.0.1"):
+    """ID3/metadata for a media filename. Reads the local file when present
+    (fast); otherwise asks the show host's media API (AA on the matrix
+    controller, audio on a separate player). Cached by (filename, host)."""
+    if not filename:
+        return {}
+    path = _find_media(filename)
+    key = path or (filename + "@" + (host or "local"))
+    try:
+        mtime = os.path.getmtime(path) if path else 0
     except OSError:
         mtime = 0
-    if _id3_cache["path"] == path and _id3_cache["mtime"] == mtime:
+    if _id3_cache["path"] == key and _id3_cache["mtime"] == mtime:
         return _id3_cache["tags"]
-    tags = _read_tags_mutagen(path) or _read_tags_ffprobe(path) or {}
+
+    tags = None
+    if path:
+        tags = _read_tags_mutagen(path) or _read_tags_ffprobe(path)
+    if not tags and host and (host not in ("127.0.0.1", "localhost", "")):
+        tags = _read_tags_remote(filename, host)
+    tags = tags or {}
     # Fall back to the filename (no extension) for the title if untagged.
     if not tags.get("title"):
-        tags["title"] = os.path.splitext(os.path.basename(path))[0]
-    _id3_cache.update(path=path, mtime=mtime, tags=tags)
+        tags["title"] = os.path.splitext(os.path.basename(filename))[0]
+    _id3_cache.update(path=key, mtime=mtime, tags=tags)
     return tags
 
 
 # ── Build the token context from current FPP state ───────────────────────────
-def build_context(status, weather=None):
-    """Return {token: value} for the current moment. Missing -> ''."""
+def build_context(status, weather=None, host="127.0.0.1"):
+    """Return {token: value} for the current moment. Missing -> ''.
+
+    host is the show/player FPP that song + playback tokens come from.
+    """
     ctx = {k: "" for k in KNOWN_TOKENS}
 
     now = time.localtime()
@@ -140,7 +192,7 @@ def build_context(status, weather=None):
     playing = bool(status.get("media_playing")) or str(status.get("status_name", "")) == "playing"
     song = status.get("current_song") or ""
     if playing and song:
-        for k, v in media_tags(song).items():
+        for k, v in media_tags(song, host).items():
             ctx[k] = v or ""
         ctx["elapsed"] = str(status.get("time_elapsed", "") or "")
         ctx["remaining"] = str(status.get("time_remaining", "") or "")
@@ -353,15 +405,15 @@ def _fmt_time(s):
     return "%d:%s %s" % (h % 12 or 12, m.group(2), ap)
 
 
-def fpp_showtimes(status=None):
-    """Best-effort human showtimes string from FPP's scheduler.
+def fpp_showtimes(status=None, host="127.0.0.1"):
+    """Best-effort human showtimes string from the show host's scheduler.
 
     Tries /api/schedule's enabled entries (start-end windows); falls back to
     the status block's nextPlaylist. Returns '' if nothing is scheduled.
     NOTE: entry field names vary by FPP version - parsed defensively; confirm
     on a box with a real schedule.
     """
-    d = _http_json(FPP_API + "/schedule")
+    d = _http_json(_api(host) + "/schedule")
     entries = d if isinstance(d, list) else (d.get("schedule") if isinstance(d, dict) else None)
     windows = []
     if isinstance(entries, list):

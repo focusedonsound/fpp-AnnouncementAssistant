@@ -12,6 +12,7 @@ function ttLoadConfig($path) {
   $defaults = [
     "enabled"       => false,
     "overlay_model" => "",
+    "show_host"     => "127.0.0.1",
     "onoff" => [
       "mode" => "auto", "while_playing" => true, "follow_schedule" => true,
       "window" => ["enabled" => false, "start" => "17:00", "end" => "22:00"],
@@ -54,7 +55,7 @@ function ttLoadConfig($path) {
     $j = json_decode(@file_get_contents($path), true);
     if (is_array($j)) {
       $cfg = $defaults;
-      foreach (["enabled", "overlay_model"] as $k) {
+      foreach (["enabled", "overlay_model", "show_host"] as $k) {
         if (array_key_exists($k, $j)) $cfg[$k] = $j[$k];
       }
       // Keyed blocks merge recursively (forward-compatible with new subkeys)...
@@ -122,6 +123,13 @@ $ttCfg = ttLoadConfig($ttConfigFile);
 <!-- ── Sign & On/Off ────────────────────────────────────────────────── -->
 <div class="tt-card">
   <h5><i class="fas fa-fw fa-tv"></i> Sign &amp; Power</h5>
+  <p class="tt-muted" style="font-size:.85em; margin-top:-.2rem;">
+    <i class="fas fa-fw fa-lightbulb"></i> <strong>Best practice:</strong> install Announcement
+    Assistant on the FPP controller that <em>drives the matrix</em> (the box with the panel
+    output), so it paints the overlay locally. If your audio plays on a <em>separate</em> show
+    player, set <strong>Show player</strong> below to that player so song details come from it.
+    When the same device plays the audio, leave it on <em>This device</em>.
+  </p>
   <div class="tt-grid">
     <div class="tt-field">
       <label>Master</label>
@@ -135,6 +143,15 @@ $ttCfg = ttLoadConfig($ttConfigFile);
       <select id="ttModel" class="form-control form-control-sm">
         <option value="">-- loading models --</option>
       </select>
+    </div>
+    <div class="tt-field">
+      <label>Show player (song source)</label>
+      <select id="ttShowHost" class="form-control form-control-sm">
+        <option value="127.0.0.1">This device (local)</option>
+        <option value="__other__">Other&hellip; (enter host)</option>
+      </select>
+      <input type="text" id="ttShowHostManual" class="form-control form-control-sm"
+             style="display:none; margin-top:.3rem;" placeholder="hostname or IP, e.g. 192.168.1.218">
     </div>
     <div class="tt-field">
       <label>When should it show?</label>
@@ -341,8 +358,9 @@ $ttCfg = ttLoadConfig($ttConfigFile);
 
   // Current config (from PHP) kept as the single source of truth.
   var ttConfig = <?php echo json_encode($ttCfg, JSON_UNESCAPED_SLASHES); ?>;
-  var ttModels = [];
-  var ttFonts  = [];
+  var ttModels  = [];
+  var ttFonts   = [];
+  var ttSystems = [];
 
   var TT_PLUGIN_BASE =
     (typeof pluginBase !== 'undefined' && pluginBase)
@@ -447,6 +465,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   function ttSyncFromDom() {
     ttConfig.enabled = el('ttEnabled').value === '1';
     ttConfig.overlay_model = el('ttModel').value;
+    ttConfig.show_host = ttShowHostValue();
 
     ttConfig.onoff.mode = el('ttMode').value;
     ttConfig.onoff.while_playing = el('ttWhilePlaying').checked;
@@ -606,9 +625,42 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     el('ttShowtimes').style.display = (fb === 'showtimes') ? '' : 'none';
   }
 
+  // ── Show-player host picker ─────────────────────────────────────────
+  function ttFillShowHost() {
+    var sel = el('ttShowHost');
+    var html = '<option value="127.0.0.1">This device (local)</option>';
+    for (var i = 0; i < ttSystems.length; i++) {
+      var s = ttSystems[i];
+      if (!s.address || s.address === '127.0.0.1') continue;
+      var label = s.hostname + ' (' + s.address + ')' + (s.mode ? ' — ' + s.mode : '');
+      html += '<option value="' + esc(s.address) + '">' + esc(label) + '</option>';
+    }
+    html += '<option value="__other__">Other&hellip; (enter host)</option>';
+    sel.innerHTML = html;
+    ttApplyShowHost();
+  }
+
+  function ttApplyShowHost() {
+    var sel = el('ttShowHost'), man = el('ttShowHostManual');
+    var cur = ttConfig.show_host || '127.0.0.1';
+    var found = false;
+    for (var i = 0; i < sel.options.length; i++) {
+      if (sel.options[i].value === cur) { found = true; break; }
+    }
+    if (found && cur !== '__other__') { sel.value = cur; man.style.display = 'none'; man.value = ''; }
+    else { sel.value = '__other__'; man.style.display = ''; man.value = (cur === '__other__' ? '' : cur); }
+  }
+
+  function ttShowHostValue() {
+    var sel = el('ttShowHost');
+    if (sel.value === '__other__') return (el('ttShowHostManual').value || '127.0.0.1').trim() || '127.0.0.1';
+    return sel.value || '127.0.0.1';
+  }
+
   // ── Populate static controls from ttConfig ──────────────────────────
   function ttFillControls() {
     el('ttEnabled').value = ttConfig.enabled ? '1' : '0';
+    ttFillShowHost();
     el('ttMode').value = ttConfig.onoff.mode;
     el('ttWhilePlaying').checked = !!ttConfig.onoff.while_playing;
     el('ttFollowSchedule').checked = !!ttConfig.onoff.follow_schedule;
@@ -814,6 +866,12 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     ttConfig.overlay_model = el('ttModel').value;
     ttUpdatePanelInfo();
   });
+  // Reveal the manual host box only when "Other…" is chosen.
+  el('ttShowHost').addEventListener('change', function () {
+    var man = el('ttShowHostManual');
+    if (el('ttShowHost').value === '__other__') { man.style.display = ''; man.focus(); }
+    else { man.style.display = 'none'; }
+  });
   // Border on/off or thickness changes the fit inset — refresh the readout.
   ['ttBorderEnabled','ttBorderWidth'].forEach(function (id) {
     var e = el(id); if (e) e.addEventListener('change', function () { ttSyncFromDom(); ttUpdatePanelInfo(); });
@@ -831,11 +889,13 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     .then(function (res) { return res.json(); })
     .then(function (j) {
       if (j && j.status === 'OK') {
-        ttModels = j.models || [];
-        ttFonts  = j.fonts || [];
+        ttSyncFromDom();   // capture current edits before repopulating selects
+        ttModels  = j.models  || [];
+        ttFonts   = j.fonts   || [];
+        ttSystems = j.systems || [];
         ttFillModelSelect();
+        ttFillShowHost();  // add discovered players to the picker
         ttUpdatePanelInfo(); // now that model dims are known
-        ttSyncFromDom();   // capture current edits
         ttRenderRegions(); // re-render so font dropdowns populate
       }
     })

@@ -160,6 +160,10 @@ $out["border"] = [
   "speed"   => clampNum($bd["speed"] ?? 8, 0, 120, 8),
 ];
 
+// show player host (FPP that runs the audio -> song/playback/schedule source)
+$sh = trim((string)($in["show_host"] ?? "127.0.0.1"));
+$out["show_host"] = ($sh !== "" && preg_match('/^[A-Za-z0-9_.:\-]{1,255}$/', $sh)) ? $sh : "127.0.0.1";
+
 // ── Atomic write ──────────────────────────────────────────────────────
 $dir = dirname($configFile);
 if (!is_dir($dir))      respond(false, "Config directory missing: $dir");
