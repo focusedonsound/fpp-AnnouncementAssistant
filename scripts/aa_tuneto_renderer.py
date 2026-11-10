@@ -102,6 +102,23 @@ def text_width(draw, text, font):
         return bbox[2] - bbox[0]
 
 
+def draw_text_crisp(target, xy, text, font, color, anchor="lm"):
+    """Draw hard-edged (non-anti-aliased) text into an RGB image.
+
+    Pillow's draw.text() anti-aliases TrueType glyphs, which looks blurry at
+    matrix pixel sizes (soft/dim edge pixels) both in the preview and on a real
+    LED panel. We render the glyphs to an 'L' layer, threshold at 50% so every
+    pixel is fully on or fully off, then paste solid color through that mask —
+    i.e. each matrix pixel is either lit at full color or dark, as a panel shows.
+    Anchor/position math is reused from Pillow so call sites are unchanged.
+    """
+    w, h = target.size
+    layer = Image.new("L", (w, h), 0)
+    ImageDraw.Draw(layer).text(xy, text, font=font, fill=255, anchor=anchor)
+    mask = layer.point(lambda p: 255 if p >= 128 else 0)
+    target.paste(Image.new("RGB", (w, h), tuple(color)), (0, 0), mask)
+
+
 # ── FPP overlay model I/O ────────────────────────────────────────────────────
 def model_geometry(name):
     """Return (width, height) for the overlay model, or (0, 0)."""
@@ -266,8 +283,8 @@ def render_region(region, state, ctx, dt):
         state.scroll += speed * dt
         period = tw + gap
         off = state.scroll % period
-        draw.text((-off, mid_y), text, font=font, fill=color, anchor="lm")
-        draw.text((-off + period, mid_y), text, font=font, fill=color, anchor="lm")
+        draw_text_crisp(img, (-off, mid_y), text, font, color, "lm")
+        draw_text_crisp(img, (-off + period, mid_y), text, font, color, "lm")
         animating = True
     elif effect == "vscroll":
         # Continuous upward marquee; wraps with a gap. Good for tall stacks.
@@ -278,13 +295,12 @@ def render_region(region, state, ctx, dt):
         state.scroll += speed * dt
         cy = (h / 2.0 + period) - (state.scroll % period)
         for yy in (cy, cy - period, cy + period):
-            draw.text((anchor_x, yy), text, font=font, fill=color, anchor=anchor_h + "m")
+            draw_text_crisp(img, (anchor_x, yy), text, font, color, anchor_h + "m")
         animating = True
     elif effect == "wipe":
         # Reveal left-to-right; holds once fully shown (re-wipes on rotation).
         full = Image.new("RGB", (w, h), (0, 0, 0))
-        ImageDraw.Draw(full).text((anchor_x, mid_y), text, font=font, fill=color,
-                                  anchor=anchor_h + "m")
+        draw_text_crisp(full, (anchor_x, mid_y), text, font, color, anchor_h + "m")
         state.scroll += speed * dt
         reveal = int(min(w, state.scroll))
         if reveal > 0:
@@ -292,7 +308,7 @@ def render_region(region, state, ctx, dt):
         animating = reveal < w
     else:
         # static / shrink / truncate / fits: align within the region.
-        draw.text((anchor_x, mid_y), text, font=font, fill=color, anchor=anchor_h + "m")
+        draw_text_crisp(img, (anchor_x, mid_y), text, font, color, anchor_h + "m")
 
     return img, animating
 
