@@ -94,12 +94,13 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     <span class="tt-muted" style="font-weight:normal;">&mdash; reflects your current edits; clock / song / weather refresh automatically</span>
   </h5>
   <div style="margin-bottom:.5rem;">
-    <label class="tt-muted" style="margin-right:.4rem;">Display</label>
+    <label class="tt-muted" style="margin-right:.4rem;">Preview as</label>
     <select id="ttPreviewStyle" class="form-control form-control-sm" style="width:auto; display:inline-block;">
-      <option value="led-round" selected>LED matrix (round) &mdash; P5 / P10</option>
-      <option value="led-square">LED matrix (square)</option>
+      <option value="led-round" selected>LED matrix, round dots &mdash; P5 / P10</option>
+      <option value="led-square">LED matrix, square dots</option>
       <option value="solid">Solid pixels &mdash; TV / projector</option>
     </select>
+    <span class="tt-muted" style="margin-left:.4rem; font-size:.85em;">changes this on-screen preview only &mdash; not the sign (the real output is the <strong>Overlay Model</strong> you pick in Sign settings)</span>
   </div>
   <div style="background:#000; border:1px solid #333; border-radius:.3rem; padding:8px; display:inline-block; max-width:100%;">
     <canvas id="ttPreviewCanvas" width="64" height="32"
