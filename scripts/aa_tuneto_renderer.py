@@ -219,6 +219,14 @@ class RegionState:
 
 
 # ── Rendering ────────────────────────────────────────────────────────────────
+# When rendering the in-tab preview sprite sheet, scroll/wipe motion is driven
+# by a 0..1 phase (one full cycle across the N frames) instead of the user's
+# real px/sec speed. Otherwise a slow speed + long text never completes a cycle
+# in the ~3s preview, so the tail of the message is never shown even though the
+# live sign scrolls it fully. None on the live daemon (real speed is used there).
+PREVIEW_PHASE = None
+
+
 def render_region(region, state, ctx, dt):
     """Return an RGB Image of the region, or None if nothing to show."""
     rect = region.get("rect", {})
@@ -285,9 +293,12 @@ def render_region(region, state, ctx, dt):
     if effect == "hscroll" and tw > w:
         # Continuous right-to-left scroll with a gap; draw two copies.
         gap = max(8, int(w * 0.25))
-        state.scroll += speed * dt
         period = tw + gap
-        off = state.scroll % period
+        if PREVIEW_PHASE is not None:
+            off = (PREVIEW_PHASE * period) % period   # one full cycle over the sheet
+        else:
+            state.scroll += speed * dt
+            off = state.scroll % period
         draw_text_crisp(img, (-off, mid_y), text, font, color, "lm")
         draw_text_crisp(img, (-off + period, mid_y), text, font, color, "lm")
         animating = True
@@ -297,8 +308,12 @@ def render_region(region, state, ctx, dt):
         th = asc + desc
         gap = max(4, int(h * 0.5))
         period = th + gap
-        state.scroll += speed * dt
-        cy = (h / 2.0 + period) - (state.scroll % period)
+        if PREVIEW_PHASE is not None:
+            scroll = PREVIEW_PHASE * period           # one full cycle over the sheet
+        else:
+            state.scroll += speed * dt
+            scroll = state.scroll
+        cy = (h / 2.0 + period) - (scroll % period)
         for yy in (cy, cy - period, cy + period):
             draw_text_crisp(img, (anchor_x, yy), text, font, color, anchor_h + "m")
         animating = True
@@ -306,8 +321,12 @@ def render_region(region, state, ctx, dt):
         # Reveal left-to-right; holds once fully shown (re-wipes on rotation).
         full = Image.new("RGB", (w, h), (0, 0, 0))
         draw_text_crisp(full, (anchor_x, mid_y), text, font, color, anchor_h + "m")
-        state.scroll += speed * dt
-        reveal = int(min(w, state.scroll))
+        if PREVIEW_PHASE is not None:
+            # Wipe across the first half of the sheet, hold full for the second.
+            reveal = int(min(w, PREVIEW_PHASE * 2.0 * w))
+        else:
+            state.scroll += speed * dt
+            reveal = int(min(w, state.scroll))
         if reveal > 0:
             img.paste(full.crop((0, 0, reveal, h)), (0, 0))
         animating = reveal < w
@@ -499,11 +518,16 @@ def main():
                 frame, _ = render_scene(cfg, ctx, status, width, height, states, 0.0, 0.0, show_host)
                 frame.save(args.preview)
             else:
+                global PREVIEW_PHASE
                 sheet = Image.new("RGB", (width, height * n), (0, 0, 0))
                 for f in range(n):
+                    # Phase 0..1 across the sheet so scroll/wipe complete exactly
+                    # one cycle (full message shown) regardless of the real speed.
+                    PREVIEW_PHASE = f / float(n)
                     fr, _ = render_scene(cfg, ctx, status, width, height, states,
                                          1.0 / fps, f / float(fps), show_host)
                     sheet.paste(fr, (0, f * height))
+                PREVIEW_PHASE = None
                 sheet.save(args.preview)
         except Exception as e:
             log("preview save failed:", e)
