@@ -225,6 +225,26 @@ class RegionState:
 # in the ~3s preview, so the tail of the message is never shown even though the
 # live sign scrolls it fully. None on the live daemon (real speed is used there).
 PREVIEW_PHASE = None
+# While rendering a preview, render_region/draw_border record the longest real
+# animation cycle here (period_px / speed = seconds for one full loop at the
+# user's actual speed). The preview loop uses it to pick the playback frame rate
+# so the preview scrolls at the REAL pace (speed 4 looks slow, 20 looks fast)
+# while still showing one complete cycle of the message.
+PREVIEW_MAX_CYCLE_SECS = 0.0
+
+
+def _preview_note_cycle(period_px, speed):
+    """Record a real-speed animation cycle length (seconds) during preview."""
+    global PREVIEW_MAX_CYCLE_SECS
+    if PREVIEW_PHASE is None:
+        return
+    try:
+        secs = float(period_px) / max(0.1, float(speed))
+    except Exception:
+        return
+    secs = max(0.0, min(120.0, secs))
+    if secs > PREVIEW_MAX_CYCLE_SECS:
+        PREVIEW_MAX_CYCLE_SECS = secs
 
 
 def render_region(region, state, ctx, dt):
@@ -295,6 +315,7 @@ def render_region(region, state, ctx, dt):
         gap = max(8, int(w * 0.25))
         period = tw + gap
         if PREVIEW_PHASE is not None:
+            _preview_note_cycle(period, speed)
             off = (PREVIEW_PHASE * period) % period   # one full cycle over the sheet
         else:
             state.scroll += speed * dt
@@ -309,6 +330,7 @@ def render_region(region, state, ctx, dt):
         gap = max(4, int(h * 0.5))
         period = th + gap
         if PREVIEW_PHASE is not None:
+            _preview_note_cycle(period, speed)
             scroll = PREVIEW_PHASE * period           # one full cycle over the sheet
         else:
             state.scroll += speed * dt
@@ -322,6 +344,7 @@ def render_region(region, state, ctx, dt):
         full = Image.new("RGB", (w, h), (0, 0, 0))
         draw_text_crisp(full, (anchor_x, mid_y), text, font, color, anchor_h + "m")
         if PREVIEW_PHASE is not None:
+            _preview_note_cycle(2.0 * w, speed)  # wipe + hold = ~2 widths of travel
             # Wipe across the first half of the sheet, hold full for the second.
             reveal = int(min(w, PREVIEW_PHASE * 2.0 * w))
         else:
@@ -373,7 +396,15 @@ def draw_border(frame, cfg, anim_t):
     stripe = max(1, int(b.get("stripe", 2)))
     animate = bool(b.get("animate", True))
     speed = float(b.get("speed", 8))
-    offset = (anim_t * speed) if animate else 0.0
+    period = stripe * n  # one full stripe-color cycle, in px of diagonal travel
+    if PREVIEW_PHASE is not None:
+        # Complete exactly one stripe cycle across the preview sheet (seamless),
+        # and record its real duration so a border-only sign still animates.
+        offset = (PREVIEW_PHASE * period) if animate else 0.0
+        if animate and speed > 0:
+            _preview_note_cycle(period, speed)
+    else:
+        offset = (anim_t * speed) if animate else 0.0
     px = frame.load()
 
     def put(x, y):
@@ -510,28 +541,46 @@ def main():
         status = src.fpp_status(show_host)
         weather = src.EnvironmentPoller().poll(cfg.get("environment", {}))
         ctx = src.build_context(status, weather, show_host)
-        n = max(1, int(args.frames))
-        fps = max(1, int(args.fps))
-        states = {}
+        global PREVIEW_PHASE, PREVIEW_MAX_CYCLE_SECS
         try:
-            if n <= 1:
-                frame, _ = render_scene(cfg, ctx, status, width, height, states, 0.0, 0.0, show_host)
-                frame.save(args.preview)
+            # First, a throwaway frame to measure the real animation cycle
+            # (longest scroll/wipe/border loop at the user's actual speed).
+            PREVIEW_MAX_CYCLE_SECS = 0.0
+            PREVIEW_PHASE = 0.0
+            probe, animating = render_scene(cfg, ctx, status, width, height, {},
+                                            0.0, 0.0, show_host)
+            cycle = PREVIEW_MAX_CYCLE_SECS
+
+            if not animating or cycle <= 0.05:
+                # Nothing moves: a single still frame.
+                PREVIEW_PHASE = None
+                probe.save(args.preview)
+                n, play_fps = 1, 1.0
             else:
-                global PREVIEW_PHASE
+                # Pick a frame count/rate so one full cycle plays over the real
+                # cycle time: pace matches the sign (speed 4 slow, 20 fast), with
+                # more frames for longer loops so slow scrolls stay smooth.
+                TARGET_FPS = 15.0
+                n = int(round(cycle * TARGET_FPS))
+                n = max(24, min(150, n))          # bound the sprite-sheet size
+                play_fps = max(1.0, min(30.0, n / cycle))
+                states = {}
                 sheet = Image.new("RGB", (width, height * n), (0, 0, 0))
                 for f in range(n):
-                    # Phase 0..1 across the sheet so scroll/wipe complete exactly
-                    # one cycle (full message shown) regardless of the real speed.
+                    # Phase 0..1 across the sheet = exactly one cycle (full
+                    # message shown); play_fps makes it run at the real pace.
                     PREVIEW_PHASE = f / float(n)
                     fr, _ = render_scene(cfg, ctx, status, width, height, states,
-                                         1.0 / fps, f / float(fps), show_host)
+                                         1.0 / play_fps, f / play_fps, show_host)
                     sheet.paste(fr, (0, f * height))
                 PREVIEW_PHASE = None
                 sheet.save(args.preview)
         except Exception as e:
             log("preview save failed:", e)
             sys.exit(1)
+        # Tell the web endpoint how to slice/play the sheet (stdout; stderr is
+        # merged into the same capture, so use a clear tagged line).
+        print("TTMETA frames=%d fps=%.3f fw=%d fh=%d" % (n, play_fps, width, height))
         return
 
     signal.signal(signal.SIGTERM, _sigterm)

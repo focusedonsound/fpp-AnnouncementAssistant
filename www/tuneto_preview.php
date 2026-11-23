@@ -58,13 +58,26 @@ if ($rc !== 0 || !file_exists($out_png)) {
   fail('Preview render failed. ' . implode(' | ', array_slice($output, -5)));
 }
 
-// Tell the browser how to slice the sprite sheet (one frame = FW x FH).
-$info = @getimagesize($out_png);
-if ($info) {
-  header('X-TT-Frames: ' . $frames);
-  header('X-TT-FW: ' . (int)$info[0]);
-  header('X-TT-FH: ' . (int)floor($info[1] / $frames));
+// The renderer now sizes the sprite sheet itself (frame count + playback fps
+// chosen so the scroll plays at the real speed) and reports them on a tagged
+// stdout line: "TTMETA frames=N fps=F fw=W fh=H". Parse it; fall back to the
+// image dimensions + requested frames if an older renderer didn't print it.
+$meta = ['frames' => $frames, 'fps' => $fps, 'fw' => 0, 'fh' => 0];
+foreach ($output as $line) {
+  if (strpos($line, 'TTMETA ') === 0) {
+    foreach (['frames', 'fps', 'fw', 'fh'] as $k) {
+      if (preg_match('/\b' . $k . '=([0-9.]+)/', $line, $m)) $meta[$k] = $m[1] + 0;
+    }
+  }
 }
+$info = @getimagesize($out_png);
+$frames_out = max(1, (int)$meta['frames']);
+$fw = $meta['fw'] > 0 ? (int)$meta['fw'] : ($info ? (int)$info[0] : 0);
+$fh = $meta['fh'] > 0 ? (int)$meta['fh'] : ($info ? (int)floor($info[1] / $frames_out) : 0);
+header('X-TT-Frames: ' . $frames_out);
+header('X-TT-FPS: ' . (float)$meta['fps']);
+header('X-TT-FW: ' . $fw);
+header('X-TT-FH: ' . $fh);
 header('Content-Type: image/png');
 header('Content-Length: ' . filesize($out_png));
 readfile($out_png);

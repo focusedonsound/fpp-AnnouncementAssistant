@@ -830,7 +830,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   function ttAnimTick(ts) {
     if (ttAnim && ttAnim.n > 1 && ttTabVisible()) {
       if (!ttLastTs) ttLastTs = ts;
-      if (ts - ttLastTs >= 1000 / PV_FPS) {
+      if (ts - ttLastTs >= 1000 / (ttAnim.fps || PV_FPS)) {
         ttFrameI = (ttFrameI + 1) % ttAnim.n;
         ttLastTs = ts;
         ttDrawFrame();
@@ -851,9 +851,10 @@ $ttCfg = ttLoadConfig($ttConfigFile);
       cache: 'no-store'
     }).then(function (res) {
       var ct = res.headers.get('Content-Type') || '';
-      hdr.n  = parseInt(res.headers.get('X-TT-Frames') || '1', 10) || 1;
-      hdr.fw = parseInt(res.headers.get('X-TT-FW') || '0', 10) || 0;
-      hdr.fh = parseInt(res.headers.get('X-TT-FH') || '0', 10) || 0;
+      hdr.n   = parseInt(res.headers.get('X-TT-Frames') || '1', 10) || 1;
+      hdr.fw  = parseInt(res.headers.get('X-TT-FW') || '0', 10) || 0;
+      hdr.fh  = parseInt(res.headers.get('X-TT-FH') || '0', 10) || 0;
+      hdr.fps = parseFloat(res.headers.get('X-TT-FPS') || '') || PV_FPS;
       if (ct.indexOf('image') === 0) return res.blob();
       return res.text().then(function (t) { throw new Error(t); });
     }).then(function (blob) {
@@ -871,7 +872,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
         var data = null;
         try { data = og.getImageData(0, 0, im.width, im.height).data; } catch (e) { data = null; }
         if (data) {
-          ttAnim = { data: data, fw: fw, fh: fh, n: n };
+          ttAnim = { data: data, fw: fw, fh: fh, n: n, fps: hdr.fps || PV_FPS };
           if (ttFrameI >= n) ttFrameI = 0;
           ttDrawFrame();
           el('ttPreviewNote').textContent =
