@@ -236,6 +236,15 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   <div style="margin-top:.3rem;"><strong class="tt-muted">Clock:</strong>
     <code>{time}</code><code>{date}</code>
   </div>
+  <div style="margin-top:.3rem;"><strong class="tt-muted">Custom date:</strong>
+    <code>{MM/DD/YY}</code><code>{MM/DD/YYYY}</code><code>{MMMM D, YYYY}</code><code>{DDDD}</code><code>{MMM D}</code>
+    <div class="tt-muted" style="margin-top:.25rem; font-size:.78rem; line-height:1.5;">
+      Build any date format from these pieces (plus any separators you like):
+      <code>YYYY</code>=2026 · <code>YY</code>=26 · <code>MMMM</code>=November · <code>MMM</code>=Nov ·
+      <code>MM</code>=11 · <code>M</code>=11 · <code>DDDD</code>=Monday · <code>DDD</code>=Mon ·
+      <code>DD</code>=09 · <code>D</code>=9. &nbsp;e.g. <code>{DDDD, MMMM D}</code> &rarr; Monday, November 23.
+    </div>
+  </div>
   <div style="margin-top:.3rem;"><strong class="tt-muted">Weather:</strong>
     <code>{temp}</code><code>{humidity}</code><code>{conditions}</code><code>{wind}</code><code>{high}</code><code>{low}</code><code>{pressure}</code>
   </div>

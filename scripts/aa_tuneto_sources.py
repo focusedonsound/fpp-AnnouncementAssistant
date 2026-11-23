@@ -30,6 +30,48 @@ def _api(host):
 
 _TOKEN_RE = re.compile(r"\{([a-z_]+)\}")
 
+# Date-format tokens: braces made of pattern letters + separators, e.g.
+# {MM/DD/YY} -> 11/23/26, {MMMM D, YYYY} -> November 23, 2026, {DDDD} -> Monday.
+# Matched separately from the lowercase {token} names above (disjoint: these
+# start with an uppercase D/M/Y and contain only pattern letters/separators).
+_DATEFMT_RE = re.compile(r"\{([DMY][DMY\s/:.\-,]*)\}")
+# Longest-first so MMMM matches before MM before M, etc.
+_DATE_UNITS = [
+    ("YYYY", lambda t: time.strftime("%Y", t)),
+    ("YY",   lambda t: time.strftime("%y", t)),
+    ("MMMM", lambda t: time.strftime("%B", t)),
+    ("MMM",  lambda t: time.strftime("%b", t)),
+    ("MM",   lambda t: time.strftime("%m", t)),
+    ("M",    lambda t: str(t.tm_mon)),
+    ("DDDD", lambda t: time.strftime("%A", t)),
+    ("DDD",  lambda t: time.strftime("%a", t)),
+    ("DD",   lambda t: time.strftime("%d", t)),
+    ("D",    lambda t: str(t.tm_mday)),
+]
+
+
+def _expand_date_pattern(pattern, now):
+    """Turn a pattern like 'MM/DD/YY' into '11/23/26' for the given time."""
+    out, i, n = [], 0, len(pattern)
+    while i < n:
+        for unit, fn in _DATE_UNITS:
+            if pattern.startswith(unit, i):
+                out.append(fn(now))
+                i += len(unit)
+                break
+        else:
+            out.append(pattern[i])  # separator / literal char
+            i += 1
+    return "".join(out)
+
+
+def apply_date_formats(text, now=None):
+    """Replace every {date-pattern} token in text (always resolves)."""
+    if not text or "{" not in text:
+        return text or ""
+    now = now or time.localtime()
+    return _DATEFMT_RE.sub(lambda m: _expand_date_pattern(m.group(1), now), text)
+
 # All tokens the UI advertises. Weather ones resolve empty in Phase 1.
 KNOWN_TOKENS = {
     "title", "artist", "album", "year", "genre", "track", "albumartist", "comment",
@@ -233,7 +275,9 @@ def resolve_template(template, ctx):
     def sub(m):
         return str(ctx.get(m.group(1), ""))
 
-    return _TOKEN_RE.sub(sub, template or ""), skip
+    text = _TOKEN_RE.sub(sub, template or "")
+    text = apply_date_formats(text)   # {MM/DD/YY}-style date patterns
+    return text, skip
 
 
 # ── Weather & sensors (Phase 2) ──────────────────────────────────────────────

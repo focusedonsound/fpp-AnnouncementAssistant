@@ -169,7 +169,8 @@ State / runtime (not user config), under `plugindata/fpp-AnnouncementAssistant/s
 |---|---|---|
 | Song (ID3) | `{title} {artist} {album} {year} {genre} {track} {albumartist} {comment}` | tags of currently-playing media |
 | Playback | `{elapsed} {remaining} {duration} {next_title}` | FPP status API |
-| Clock | `{time} {date}` | system clock (format configurable later) |
+| Clock | `{time} {date}` | system clock |
+| Custom date | pattern tokens, e.g. `{MM/DD/YY}` `{MM/DD/YYYY}` `{MMMM D, YYYY}` `{DDDD}` | built from `YYYY`/`YY` (year), `MMMM`/`MMM`/`MM`/`M` (month), `DDDD`/`DDD`/`DD`/`D` (day/weekday) plus any separators |
 | Weather | `{temp} {humidity} {conditions} {wind} {high} {low}` (+`{pressure}` on BME280) | Open-Meteo or sensor |
 
 Rules:
