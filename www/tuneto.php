@@ -86,6 +86,8 @@ $ttCfg = ttLoadConfig($ttConfigFile);
 .tt-msg label { display:block; font-size:.72rem; color:#adb5bd; margin-bottom:1px; }
 .tt-tokens code { background:#222; color:#8fd; padding:1px 5px; border-radius:3px; font-size:.78rem; margin:0 2px; cursor:pointer; display:inline-block; }
 .tt-muted { color:#adb5bd; font-size:.82rem; }
+.tt-warn { color:#ffce3a; font-size:.82rem; }
+.tt-warn i { margin-right:.3rem; }
 @media (max-width:720px){ .tt-msg{ grid-template-columns:1fr 1fr; } }
 </style>
 
@@ -244,6 +246,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   <div>
     <h4 class="mb-0"><i class="fas fa-fw fa-th-large"></i> Regions</h4>
     <small id="ttPanelInfo" class="tt-muted"></small>
+    <div id="ttPanelWarn" class="tt-warn" style="display:none; margin-top:.2rem; max-width:720px;"></div>
   </div>
   <div class="d-flex" style="gap:.4rem;">
     <button type="button" class="btn btn-sm btn-outline-secondary" title="Lay the regions out to fill the whole panel" onclick="ttFitAllRegions()">
@@ -448,6 +451,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
           }).join('') +
         '</select></div>' +
       '</div>' +
+      '<div class="tt-r-warn tt-warn" style="display:none; margin-top:.35rem;"></div>' +
       '<div style="margin-top:.6rem;"><label class="tt-muted">Messages (rotate in order; empty-token messages are skipped)</label>' + msgs + '</div>' +
       '<button type="button" class="btn btn-sm btn-outline-secondary" onclick="ttAddMsg(' + ri + ')"><i class="fas fa-fw fa-plus"></i> Add Message</button>' +
     '</div>';
@@ -459,6 +463,30 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     for (var ri = 0; ri < ttConfig.regions.length; ri++) html += regionCard(ri, ttConfig.regions[ri]);
     if (!ttConfig.regions.length) html = '<p class="tt-muted">No regions yet. Click "Add Region" to begin.</p>';
     host.innerHTML = html;
+    ttUpdateAllRegionWarns();
+  }
+
+  // A glyph is clipped to its region's height (the renderer draws text into an
+  // image exactly rect.h tall), so a font size taller than the region never
+  // shows — the classic "changing the size does nothing" trap.
+  function ttUpdateRegionWarn(rel) {
+    var warn = rel.querySelector('.tt-r-warn'); if (!warn) return;
+    var size = parseInt((rel.querySelector('.tt-r-size') || {}).value, 10) || 0;
+    var h    = parseInt((rel.querySelector('.tt-r-h')    || {}).value, 10) || 0;
+    if (size > 0 && h > 0 && size > h) {
+      warn.style.display = '';
+      warn.innerHTML = '<i class="fas fa-fw fa-exclamation-triangle"></i>Font size <strong>' +
+        size + '</strong> is taller than this region (<strong>' + h + ' px</strong>), so it will be ' +
+        'clipped and changing the size won\'t show. Raise <em>Height</em> or lower <em>Size</em> ' +
+        '(pixel fonts are sharpest at 8, 16 or 24).';
+    } else {
+      warn.style.display = 'none';
+      warn.innerHTML = '';
+    }
+  }
+
+  function ttUpdateAllRegionWarns() {
+    document.querySelectorAll('#ttRegions .tt-region').forEach(ttUpdateRegionWarn);
   }
 
   // ── Sync DOM back into ttConfig (before any re-render or save) ───────
@@ -548,6 +576,27 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     if (p.name && p.w && p.h) e.textContent = 'Panel: ' + p.name + ' — ' + p.w + ' × ' + p.h + ' px';
     else if (p.name)          e.textContent = 'Panel: ' + p.name + ' (size unknown — is the model valid?)';
     else                      e.textContent = 'No overlay model selected — pick one in Sign settings above.';
+    ttUpdatePanelWarn(p);
+  }
+
+  // Flag an overlay model whose reported shape looks like a raw channel strip
+  // rather than a real 2D panel — the classic symptom of a hand-built "Channel"
+  // Pixel Overlay Model, or a Custom xLights model whose geometry was never
+  // pushed to FPP. Both leave the sign painting onto the wrong shape.
+  function ttUpdatePanelWarn(p) {
+    var w = el('ttPanelWarn'); if (!w) return;
+    p = p || ttPanel();
+    var suspect = p.name && p.w && p.h &&
+                  (p.h <= 8 || (p.h < 16 && (p.w / p.h) >= 16));
+    if (!suspect) { w.style.display = 'none'; w.innerHTML = ''; return; }
+    w.style.display = '';
+    w.innerHTML =
+      '<i class="fas fa-fw fa-exclamation-triangle"></i>This model reports <strong>' +
+      p.w + '×' + p.h + '</strong>, which looks like a flat channel strip, not a 2D panel. ' +
+      'If your sign is actually taller, FPP has the wrong geometry — usually a hand-made ' +
+      '<em>Channel</em> overlay, or a <em>Custom</em> xLights model whose layout was never sent to FPP. ' +
+      'Fix: in xLights run <strong>Tools → FPP Connect</strong> and upload <strong>Models</strong> to this ' +
+      'controller, then pick the auto-created model here (and delete the hand-made one).';
   }
 
   window.ttFitRegionWidth = function (ri) {
@@ -865,6 +914,14 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   el('ttModel').addEventListener('change', function () {
     ttConfig.overlay_model = el('ttModel').value;
     ttUpdatePanelInfo();
+  });
+  // Live-update the per-region "font taller than region" hint as Size/Height change.
+  el('ttRegions').addEventListener('input', function (ev) {
+    if (!ev.target) return;
+    if (ev.target.classList.contains('tt-r-size') || ev.target.classList.contains('tt-r-h')) {
+      var rel = ev.target.closest('.tt-region');
+      if (rel) ttUpdateRegionWarn(rel);
+    }
   });
   // Reveal the manual host box only when "Other…" is chosen.
   el('ttShowHost').addEventListener('change', function () {

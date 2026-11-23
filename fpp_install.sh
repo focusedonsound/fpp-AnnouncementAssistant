@@ -384,7 +384,16 @@ EOF
 
 seed_default_config_if_missing() {
   ensure_dir "$CFG_DIR"
-  ensure_dir "/home/fpp/media/plugins/fpp-AnnouncementAssistant/state"
+
+  # The Tune To renderer daemon (User=fpp) and the web UI preview endpoint
+  # (Apache runs as fpp) both write into state/. fpp_install.sh runs as root,
+  # so without this the dir is left root:root 0755 and every write fails with
+  # "Could not write preview config." / a dead live preview. Own it to fpp and
+  # make it group-writable so both paths can use it.
+  local state_dir="/home/fpp/media/plugins/fpp-AnnouncementAssistant/state"
+  ensure_dir "$state_dir"
+  chown -R fpp:fpp "$state_dir" 2>/dev/null || true
+  chmod 775 "$state_dir" 2>/dev/null || true
 
   if [[ ! -f "$CFG_FILE" ]]; then
     cat > "$CFG_FILE" <<'EOF'
