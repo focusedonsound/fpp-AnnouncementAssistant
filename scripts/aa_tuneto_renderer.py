@@ -360,12 +360,30 @@ def render_region(region, state, ctx, dt):
     return img, animating
 
 
+def active_regions(cfg, now=None):
+    """Resolve which region set renders right now.
+
+    With schedule.enabled, return the first day-part whose hour window contains
+    `now` (its regions, plus a stable key prefix so each day-part keeps its own
+    rotation state). If no day-part matches, return an empty set so the sign is
+    blank (the no-media fallback still applies). With scheduling off, return the
+    top-level regions unchanged."""
+    sched = cfg.get("schedule", {}) or {}
+    if sched.get("enabled"):
+        for i, dp in enumerate(sched.get("dayparts", []) or []):
+            if _in_window(dp.get("start", ""), dp.get("end", ""), now):
+                return (dp.get("regions", []) or []), "dp%d" % i
+        return [], "none"
+    return (cfg.get("regions", []) or []), "base"
+
+
 def compose_frame(cfg, ctx, width, height, states, dt):
     """Build the full-panel RGB frame. Returns (Image, animating)."""
     frame = Image.new("RGB", (width, height), (0, 0, 0))
     animating = False
-    for i, region in enumerate(cfg.get("regions", [])):
-        st = states.setdefault(i, RegionState())
+    regions, key = active_regions(cfg)
+    for i, region in enumerate(regions):
+        st = states.setdefault("%s:%d" % (key, i), RegionState())
         out = render_region(region, st, ctx, dt)
         if not out:
             continue

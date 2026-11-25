@@ -154,9 +154,30 @@ matches AA's existing atomic-write + default-merge save pattern).
     "mode": "idle_message",        // "static_only" | "idle_message" | "blank" | "bank" | "showtimes"
     "idle_message": "Merry Christmas!",
     "showtimes": { "source": "fpp", "custom": "" }   // "fpp" | "custom" | "both"
+  },
+  "schedule": {                    // optional time-of-day layouts (off by default)
+    "enabled": false,
+    "dayparts": [                  // first whose window contains "now" renders; none -> blank
+      { "name": "Daytime",   "start": "08:00", "end": "17:00", "regions": [ /* full region set */ ] },
+      { "name": "Nighttime", "start": "17:00", "end": "23:00", "regions": [ /* full region set */ ] }
+    ]
   }
 }
 ```
+
+### Time-of-day scheduling (day-parts)
+
+When `schedule.enabled` is true, the top-level `regions` are set aside and the renderer
+instead shows the **first day-part whose hour window contains the current time**. Each
+day-part carries its own complete region set, so "Daytime" and "Nighttime" can differ in
+text, color, scroll, layout — anything. Windows may wrap past midnight (`22:00`–`02:00`).
+If no day-part matches the clock (e.g. 2 am with only 08:00–23:00 covered), the sign is
+**blank** — the no-media fallback still applies as usual. Each day-part keeps independent
+rotation state (`active_regions()` returns a per-part state key), so switching at a
+boundary restarts cleanly. In the editor, the **Schedules** card enables this and manages
+the day-parts; the **Editing layout** picker above Regions chooses which day-part the
+region editor is editing, and the live preview always shows the layout currently on screen.
+Turning scheduling off restores the single top-level `regions` layout untouched.
 
 State / runtime (not user config), under `plugindata/fpp-AnnouncementAssistant/state/`:
 `tuneto_weather.cache.json`, `tuneto_renderer.pid`, `tuneto_last_frame.png` (for preview).

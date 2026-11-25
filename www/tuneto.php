@@ -50,6 +50,13 @@ function ttLoadConfig($path) {
       "colors" => ["#CC0000", "#FFFFFF"],
       "stripe" => 2, "animate" => true, "speed" => 8,
     ],
+    // Optional time-of-day layouts. When enabled, the sign shows whichever
+    // day-part's hour window contains the current time (blank if none). Each
+    // day-part carries its own full region set.
+    "schedule" => [
+      "enabled" => false,
+      "dayparts" => [],   // [{ "name", "start", "end", "regions":[...] }]
+    ],
   ];
   if (file_exists($path)) {
     $j = json_decode(@file_get_contents($path), true);
@@ -66,6 +73,12 @@ function ttLoadConfig($path) {
       if (is_array($j["border"]["colors"] ?? null)) $cfg["border"]["colors"] = $j["border"]["colors"];
       // ...but regions is a list: take the saved one verbatim.
       if (is_array($j["regions"] ?? null)) $cfg["regions"] = $j["regions"];
+      // schedule holds nested region lists per day-part: take it verbatim.
+      if (is_array($j["schedule"] ?? null)) {
+        $cfg["schedule"]["enabled"]  = !empty($j["schedule"]["enabled"]);
+        $cfg["schedule"]["dayparts"] = is_array($j["schedule"]["dayparts"] ?? null)
+          ? $j["schedule"]["dayparts"] : [];
+      }
       return $cfg;
     }
   }
@@ -250,6 +263,26 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   </div>
 </div>
 
+<!-- ── Schedules (time-of-day layouts) ──────────────────────────────── -->
+<div class="tt-card">
+  <h5><i class="fas fa-fw fa-clock"></i> Schedules
+    <span class="tt-muted" style="font-weight:normal;">&mdash; show different messages by time of day</span></h5>
+  <label><input type="checkbox" id="ttSchedEnabled"> Enable time-of-day scheduling</label>
+  <div id="ttSchedBody" style="display:none; margin-top:.6rem;">
+    <p class="tt-muted" style="margin-bottom:.5rem;">
+      Define day-parts, each with its own hours and its own messages (for example
+      <strong>Daytime</strong> and <strong>Nighttime</strong>). The sign shows whichever day-part's
+      hours include the current time; edit each one's text below using the
+      <strong>Editing layout</strong> picker. Outside every day-part's hours the sign is blank
+      (the no-media fallback still applies). Hours may wrap past midnight (e.g. 22:00&ndash;02:00).
+    </p>
+    <div id="ttDayparts"></div>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="ttAddDaypart()">
+      <i class="fas fa-fw fa-plus"></i> Add day-part
+    </button>
+  </div>
+</div>
+
 <!-- ── Regions ──────────────────────────────────────────────────────── -->
 <div class="d-flex justify-content-between align-items-center mb-2">
   <div>
@@ -257,7 +290,9 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     <small id="ttPanelInfo" class="tt-muted"></small>
     <div id="ttPanelWarn" class="tt-warn" style="display:none; margin-top:.2rem; max-width:720px;"></div>
   </div>
-  <div class="d-flex" style="gap:.4rem;">
+  <div class="d-flex align-items-center" style="gap:.4rem;">
+    <select id="ttLayoutSel" class="form-control form-control-sm" style="display:none; width:auto;"
+            title="Which day-part layout these regions belong to"></select>
     <button type="button" class="btn btn-sm btn-outline-secondary" title="Lay the regions out to fill the whole panel" onclick="ttFitAllRegions()">
       <i class="fas fa-fw fa-expand"></i> Fit to panel
     </button>
@@ -374,6 +409,31 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   var ttFonts   = [];
   var ttSystems = [];
 
+  // Which layout the region editor is currently editing: 'base' (the single
+  // layout used when scheduling is off) or a day-part index (0-based) when
+  // time-of-day scheduling is on. The region editor always reads/writes the
+  // active layout's regions array via ttActiveRegions().
+  if (!ttConfig.schedule) ttConfig.schedule = { enabled: false, dayparts: [] };
+  if (!Array.isArray(ttConfig.schedule.dayparts)) ttConfig.schedule.dayparts = [];
+  var ttLayout = (ttConfig.schedule.enabled && ttConfig.schedule.dayparts.length) ? 0 : 'base';
+
+  function ttActiveRegions() {
+    if (ttLayout !== 'base' && ttConfig.schedule.dayparts[ttLayout]) {
+      var dp = ttConfig.schedule.dayparts[ttLayout];
+      if (!Array.isArray(dp.regions)) dp.regions = [];
+      return dp.regions;
+    }
+    if (!Array.isArray(ttConfig.regions)) ttConfig.regions = [];
+    return ttConfig.regions;
+  }
+  function ttSetActiveRegions(arr) {
+    if (ttLayout !== 'base' && ttConfig.schedule.dayparts[ttLayout]) {
+      ttConfig.schedule.dayparts[ttLayout].regions = arr;
+    } else {
+      ttConfig.regions = arr;
+    }
+  }
+
   var TT_PLUGIN_BASE =
     (typeof pluginBase !== 'undefined' && pluginBase)
       ? pluginBase
@@ -468,9 +528,10 @@ $ttCfg = ttLoadConfig($ttConfigFile);
 
   function ttRenderRegions() {
     var host = el('ttRegions');
+    var regs = ttActiveRegions();
     var html = '';
-    for (var ri = 0; ri < ttConfig.regions.length; ri++) html += regionCard(ri, ttConfig.regions[ri]);
-    if (!ttConfig.regions.length) html = '<p class="tt-muted">No regions yet. Click "Add Region" to begin.</p>';
+    for (var ri = 0; ri < regs.length; ri++) html += regionCard(ri, regs[ri]);
+    if (!regs.length) html = '<p class="tt-muted">No regions yet. Click "Add Region" to begin.</p>';
     host.innerHTML = html;
     ttUpdateAllRegionWarns();
   }
@@ -549,7 +610,19 @@ $ttCfg = ttLoadConfig($ttConfigFile);
         messages: msgs
       });
     });
-    ttConfig.regions = regions;
+    ttSetActiveRegions(regions);
+
+    // Day-part meta (hours/names) from the schedule manager; regions on each
+    // day-part are preserved (edited via the active-layout region editor).
+    ttConfig.schedule.enabled = el('ttSchedEnabled').checked;
+    document.querySelectorAll('#ttDayparts .tt-dp').forEach(function (del) {
+      var dpi = parseInt(del.getAttribute('data-dpi'), 10);
+      var dp = ttConfig.schedule.dayparts[dpi];
+      if (!dp) return;
+      dp.name  = del.querySelector('.tt-dp-name').value || ('Part ' + (dpi + 1));
+      dp.start = del.querySelector('.tt-dp-start').value || '00:00';
+      dp.end   = del.querySelector('.tt-dp-end').value || '00:00';
+    });
 
     ttConfig.fallback.mode = el('ttFallbackMode').value;
     ttConfig.fallback.idle_message = el('ttIdleMsg').value;
@@ -613,8 +686,9 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     var p = ttPanel();
     if (!p.w) { ttNotify('Pick a valid overlay model first', true); return; }
     var ins = ttBorderInset();
-    ttConfig.regions[ri].rect.x = ins;
-    ttConfig.regions[ri].rect.w = Math.max(1, p.w - 2 * ins);
+    var regs = ttActiveRegions();
+    regs[ri].rect.x = ins;
+    regs[ri].rect.w = Math.max(1, p.w - 2 * ins);
     ttRenderRegions();
   };
 
@@ -622,7 +696,7 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     ttSyncFromDom();
     var p = ttPanel();
     if (!p.w || !p.h) { ttNotify('Pick a valid overlay model first', true); return; }
-    var rs = ttConfig.regions, n = rs.length;
+    var rs = ttActiveRegions(), n = rs.length;
     if (!n) { ttNotify('Add a region first', true); return; }
     var ins = ttBorderInset();
     var top = ins, usableH = Math.max(1, p.h - 2 * ins);
@@ -645,12 +719,13 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     var w = p.w ? Math.max(1, p.w - 2 * ins) : 64;
     // Stack the new region directly below the existing ones.
     var y = ins;
-    for (var i = 0; i < ttConfig.regions.length; i++) {
-      var rr = ttConfig.regions[i].rect || {};
+    var regs = ttActiveRegions();
+    for (var i = 0; i < regs.length; i++) {
+      var rr = regs[i].rect || {};
       y = Math.max(y, (rr.y || 0) + (rr.h || 0));
     }
-    ttConfig.regions.push({
-      name: 'Region ' + (ttConfig.regions.length + 1),
+    regs.push({
+      name: 'Region ' + (regs.length + 1),
       rect: { x: ins, y: y, w: w, h: 10 },
       font: '', size: 8, color: '#FFFFFF', align: 'center',
       messages: [{ template: '', effect: 'static', speed: 20, dwell_sec: 5 }]
@@ -658,16 +733,84 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     ttRenderRegions();
   };
   window.ttDelRegion = function (ri) {
-    ttSyncFromDom(); ttConfig.regions.splice(ri, 1); ttRenderRegions();
+    ttSyncFromDom(); ttActiveRegions().splice(ri, 1); ttRenderRegions();
   };
   window.ttAddMsg = function (ri) {
     ttSyncFromDom();
-    ttConfig.regions[ri].messages.push({ template: '', effect: 'static', speed: 20, dwell_sec: 5 });
+    ttActiveRegions()[ri].messages.push({ template: '', effect: 'static', speed: 20, dwell_sec: 5 });
     ttRenderRegions();
   };
   window.ttDelMsg = function (ri, mi) {
-    ttSyncFromDom(); ttConfig.regions[ri].messages.splice(mi, 1); ttRenderRegions();
+    ttSyncFromDom(); ttActiveRegions()[ri].messages.splice(mi, 1); ttRenderRegions();
   };
+
+  // ── Time-of-day schedules (day-parts) ───────────────────────────────
+  function ttDaypartRow(i, dp) {
+    return '' +
+      '<div class="tt-dp" data-dpi="' + i + '" style="display:grid;grid-template-columns:1fr 120px 120px 40px;gap:.4rem;align-items:end;margin-bottom:.4rem;">' +
+        '<div><label class="tt-muted">Name</label><input type="text" class="form-control form-control-sm tt-dp-name" value="' + esc(dp.name || ('Part ' + (i + 1))) + '"></div>' +
+        '<div><label class="tt-muted">From</label><input type="time" class="form-control form-control-sm tt-dp-start" value="' + esc(dp.start || '08:00') + '"></div>' +
+        '<div><label class="tt-muted">To</label><input type="time" class="form-control form-control-sm tt-dp-end" value="' + esc(dp.end || '17:00') + '"></div>' +
+        '<div><label>&nbsp;</label><button type="button" class="btn btn-sm btn-outline-danger" title="Remove day-part" onclick="ttDelDaypart(' + i + ')"><i class="fas fa-fw fa-times"></i></button></div>' +
+      '</div>';
+  }
+  function ttRenderDayparts() {
+    var host = el('ttDayparts'); if (!host) return;
+    var dps = ttConfig.schedule.dayparts, html = '';
+    for (var i = 0; i < dps.length; i++) html += ttDaypartRow(i, dps[i]);
+    if (!dps.length) html = '<p class="tt-muted">No day-parts yet. Click "Add day-part" to begin.</p>';
+    host.innerHTML = html;
+  }
+  function ttRenderLayoutSel() {
+    var sel = el('ttLayoutSel'); if (!sel) return;
+    var on = ttConfig.schedule.enabled;
+    sel.style.display = on ? '' : 'none';
+    if (!on) { ttLayout = 'base'; return; }
+    var dps = ttConfig.schedule.dayparts, html = '';
+    for (var i = 0; i < dps.length; i++)
+      html += '<option value="' + i + '">Editing: ' + esc(dps[i].name || ('Part ' + (i + 1))) + '</option>';
+    sel.innerHTML = html;
+    if (ttLayout === 'base' || ttLayout >= dps.length) ttLayout = dps.length ? 0 : 'base';
+    if (ttLayout !== 'base') sel.value = String(ttLayout);
+  }
+  window.ttAddDaypart = function () {
+    ttSyncFromDom();
+    var dps = ttConfig.schedule.dayparts;
+    dps.push({ name: 'Part ' + (dps.length + 1), start: '08:00', end: '17:00', regions: [] });
+    ttRenderDayparts(); ttRenderLayoutSel();
+  };
+  window.ttDelDaypart = function (i) {
+    ttSyncFromDom();
+    ttConfig.schedule.dayparts.splice(i, 1);
+    if (ttLayout !== 'base') {
+      if (ttLayout === i) ttLayout = ttConfig.schedule.dayparts.length ? 0 : 'base';
+      else if (ttLayout > i) ttLayout -= 1;
+    }
+    ttRenderDayparts(); ttRenderLayoutSel(); ttRenderRegions();
+  };
+  function ttSelectLayout(which) {
+    ttSyncFromDom();
+    ttLayout = (which === 'base') ? 'base' : parseInt(which, 10);
+    ttRenderRegions();
+  }
+  function ttToggleSchedule() {
+    ttSyncFromDom();
+    var on = el('ttSchedEnabled').checked;
+    ttConfig.schedule.enabled = on;
+    if (on && !ttConfig.schedule.dayparts.length) {
+      // Seed Daytime + Nighttime from the current single layout so the user
+      // starts from what they already built, then tweaks each one.
+      var baseRegions = Array.isArray(ttConfig.regions) ? ttConfig.regions : [];
+      var clone = function () { return JSON.parse(JSON.stringify(baseRegions)); };
+      ttConfig.schedule.dayparts = [
+        { name: 'Daytime',   start: '08:00', end: '17:00', regions: clone() },
+        { name: 'Nighttime', start: '17:00', end: '23:00', regions: clone() }
+      ];
+    }
+    ttLayout = on ? 0 : 'base';
+    el('ttSchedBody').style.display = on ? '' : 'none';
+    ttRenderDayparts(); ttRenderLayoutSel(); ttRenderRegions();
+  }
 
   // ── Conditional section visibility ──────────────────────────────────
   function ttUpdateVisibility() {
@@ -750,6 +893,11 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     el('ttBorderStripe').value  = (bd.stripe != null ? bd.stripe : 2);
     el('ttBorderAnimate').value = bd.animate ? '1' : '0';
     el('ttBorderSpeed').value   = (bd.speed != null ? bd.speed : 8);
+
+    el('ttSchedEnabled').checked = !!ttConfig.schedule.enabled;
+    el('ttSchedBody').style.display = ttConfig.schedule.enabled ? '' : 'none';
+    ttRenderDayparts();
+    ttRenderLayoutSel();
   }
 
   function ttFillModelSelect() {
@@ -852,11 +1000,15 @@ $ttCfg = ttLoadConfig($ttConfigFile);
     if (ttPreviewBusy || !ttTabVisible()) return;
     ttPreviewBusy = true;
     ttSyncFromDom();
+    // Preview the layout currently being edited, regardless of the clock: send
+    // the active layout's regions with scheduling disabled so the renderer paints
+    // exactly what's on screen (not whichever day-part happens to match now).
+    var pv = Object.assign({}, ttConfig, { schedule: { enabled: false }, regions: ttActiveRegions() });
     var hdr = {};
     fetch(TT_BASE + 'tuneto_preview.php&frames=' + PV_FRAMES + '&fps=' + PV_FPS, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(ttConfig),
+      body: JSON.stringify(pv),
       cache: 'no-store'
     }).then(function (res) {
       var ct = res.headers.get('Content-Type') || '';
@@ -920,6 +1072,9 @@ $ttCfg = ttLoadConfig($ttConfigFile);
   ['ttMode','ttEnvSource','ttSensorType','ttFallbackMode'].forEach(function (id) {
     el(id).addEventListener('change', ttUpdateVisibility);
   });
+  // Schedule: toggle day-part scheduling, and switch which layout is edited.
+  el('ttSchedEnabled').addEventListener('change', ttToggleSchedule);
+  el('ttLayoutSel').addEventListener('change', function () { ttSelectLayout(el('ttLayoutSel').value); });
   // Keep the panel-size readout current when the overlay model changes.
   el('ttModel').addEventListener('change', function () {
     ttConfig.overlay_model = el('ttModel').value;
